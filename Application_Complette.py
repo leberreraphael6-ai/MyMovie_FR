@@ -12,9 +12,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- FONCTION ROBUSTE DE LECTURE DU CSV (DTYPE=STR POUR PRÉSERVER LES CODES-BARRES) ---
+# --- FONCTION ROBUSTE DE LECTURE DU CSV (DTYPE=STR & CONVERSION CHRONOLOGIQUE DES DATES) ---
 def load_and_prepare_csv(filepath_or_buffer):
-    """Charge le fichier CSV sans altérer les codes-barres (dtype=str) et prépare les colonnes."""
+    """Charge le fichier CSV en préservant les codes-barres et en convertissant les dates au format chronologique."""
     if isinstance(filepath_or_buffer, str):
         with open(filepath_or_buffer, 'rb') as f:
             bytes_data = f.read()
@@ -57,6 +57,12 @@ def load_and_prepare_csv(filepath_or_buffer):
         if any(k in c.lower() for k in ['code', 'barre', 'ean']):
             df_loaded[c] = df_loaded[c].fillna('').astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             df_loaded.loc[df_loaded[c].isin(['nan', 'none', 'null']), c] = ''
+
+    # CONVERSION VÉRITABLE DES DATES (évite le tri alphabétique par jour DD/MM/YYYY)
+    for date_col in ['date_ajout', 'date_coffret']:
+        if date_col in df_loaded.columns:
+            # Parse DD/MM/YYYY vers un véritable type datetime
+            df_loaded[date_col] = pd.to_datetime(df_loaded[date_col], format='%d/%m/%Y', errors='coerce')
 
     # Normalisation du titre français et du titre VO
     col_t_fr = next((c for c in df_loaded.columns if 'titre' in c.lower() and ('_fr' in c.lower() or 'francais' in c.lower() or 'vf' in c.lower())), None)
@@ -138,7 +144,6 @@ if 'df_films' not in st.session_state:
         elif os.path.isdir(p):
             try:
                 files = [os.path.join(p, f) for f in os.listdir(p) if f.lower().endswith(('.csv', '.txt'))]
-                # Privilégier un fichier avec "coffret" ou "inventaire"
                 files.sort(key=lambda x: ('coffret' in x.lower(), 'inventaire' in x.lower(), os.path.getmtime(x)), reverse=True)
                 if files:
                     loaded_df = load_and_prepare_csv(files[0])
@@ -154,6 +159,7 @@ if 'df_films' not in st.session_state:
             'code_barre': [f"3700000{i:03d}" for i in range(1, 41)],
             'titre_fr': [f"Film Exemple {i}" for i in range(1, 41)],
             'pays': ['France' if i % 2 == 0 else 'Belgium' for i in range(1, 41)],
+            'date_ajout': pd.date_range(start='2020-01-01', periods=40, freq='M'),
             'nb_DVD': ['1' if i % 2 == 0 else '0' for i in range(1, 41)],
             'nb_BLURAY': ['1' if i % 3 == 0 else '0' for i in range(1, 41)],
             'nb_4K': ['1' if i % 5 == 0 else '0' for i in range(1, 41)],
@@ -181,7 +187,7 @@ if st.sidebar.button("🔄 Charger / Recharger ce fichier"):
             candidates = [os.path.join(input_custom_path, f) for f in os.listdir(input_custom_path) if f.lower().endswith(('.csv', '.txt'))]
             candidates.sort(key=lambda x: ('coffret' in x.lower(), os.path.getmtime(x)), reverse=True)
             target = candidates[0] if candidates else None
-        
+
         if target and os.path.isfile(target):
             try:
                 st.session_state['df_films'] = load_and_prepare_csv(target)
@@ -209,10 +215,15 @@ if up_file is not None:
 df = st.session_state['df_films']
 st.sidebar.info(f"📊 Fichier actif : **{st.session_state.get('source_name', 'Inconnu')}**\n\n📌 **{len(df):,}** enregistrements".replace(',', ' '))
 
-# Export CSV
-csv_export = df.to_csv(index=False).encode('utf-8')
+# Export CSV (avec remise des dates au format français standard DD/MM/YYYY)
+df_to_export = df.copy()
+for dc in ['date_ajout', 'date_coffret']:
+    if dc in df_to_export.columns and pd.api.types.is_datetime64_any_dtype(df_to_export[dc]):
+        df_to_export[dc] = df_to_export[dc].dt.strftime('%d/%m/%Y').fillna('')
+
+csv_export = df_to_export.to_csv(index=False, sep=';').encode('utf-8')
 st.sidebar.download_button(
-    label="💾 Exporter en CSV",
+    label="💾 Exporter en CSV (séparateur ;)",
     data=csv_export,
     file_name="inventaire_films_export.csv",
     mime="text/csv"
@@ -237,13 +248,13 @@ col_titre_vo = next((c for c in df.columns if 'titre' in c.lower() and ('_en' in
 
 col_barcode = next((c for c in df.columns if any(k in c.lower() for k in ['code', 'barre', 'ean'])), df.columns[0])
 
-# Fonction standardisée pour l'affichage de tableaux interactifs
+# Fonction standardisée pour l'affichage de tableaux interactifs avec DateColumn
 def render_custom_table(dataframe, key_id):
     if dataframe.empty:
         st.warning("Aucun résultat ne correspond aux critères sélectionnés.")
         return
 
-    # Configuration Streamlit avec liens IMDb cliquables
+    # Configuration Streamlit avec liens IMDb cliquables et format de date DD/MM/YYYY
     col_cfg = {
         "Lien IMDb": st.column_config.LinkColumn(
             "Lien IMDb",
@@ -252,6 +263,21 @@ def render_custom_table(dataframe, key_id):
             width="medium"
         )
     }
+
+    # Formatage des colonnes Date pour tri chronologique natif dans Streamlit
+    if 'date_ajout' in dataframe.columns and pd.api.types.is_datetime64_any_dtype(dataframe['date_ajout']):
+        col_cfg['date_ajout'] = st.column_config.DateColumn(
+            "Date d'ajout",
+            format="DD/MM/YYYY",
+            help="Date d'enregistrement dans la vidéothèque (tri chronologique)",
+            width="medium"
+        )
+    if 'date_coffret' in dataframe.columns and pd.api.types.is_datetime64_any_dtype(dataframe['date_coffret']):
+        col_cfg['date_coffret'] = st.column_config.DateColumn(
+            "Date coffret",
+            format="DD/MM/YYYY",
+            width="medium"
+        )
 
     for col in dataframe.columns:
         if any(w in col.lower() for w in ['titre', 'title', 'nom']):
@@ -269,11 +295,11 @@ def render_custom_table(dataframe, key_id):
 
 
 # ==============================================================================
-# FONCTION 1 : CONSULTATION GLOBALE AVEC FILTRES
+# FONCTION 1 : CONSULTATION GLOBALE AVEC FILTRES & TRI CHRONOLOGIQUE
 # ==============================================================================
 if menu == "1° Consultation globale avec filtres":
     st.title("🗂️ Consultation Globale & Filtres Multi-critères")
-    st.markdown("Recherchez et filtrez l'inventaire en direct selon les types de jaquette, supports, pays, etc.")
+    st.markdown("Recherchez, filtrez et triez l'inventaire en direct selon vos critères.")
 
     filtered_df = df.copy()
 
@@ -334,7 +360,44 @@ if menu == "1° Consultation globale avec filtres":
             if sel_pays:
                 filtered_df = filtered_df[filtered_df['pays'].isin(sel_pays)]
 
-    st.markdown(f"**Films correspondants affichés :** `{len(filtered_df):,}` / `{len(df):,}`".replace(',', ' '))
+    # --- SÉLECTEUR DE TRI DÉDIÉ (CHRONOLOGIQUE OU ALPHABÉTIQUE) ---
+    col_sort1, col_sort2 = st.columns([2, 2])
+    with col_sort1:
+        sort_mode = st.selectbox(
+            "🔽 Trier l'inventaire par :",
+            options=[
+                "Date d'ajout (Du plus récent au plus ancien)",
+                "Date d'ajout (Du plus ancien au plus récent)",
+                "Titre alphabétique (A ➔ Z)",
+                "Titre alphabétique (Z ➔ A)",
+                "Ordre initial du fichier"
+            ],
+            index=0
+        )
+
+    # Application du tri sélectionné
+    if sort_mode == "Date d'ajout (Du plus récent au plus ancien)":
+        if 'date_ajout' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='date_ajout', ascending=False, na_position='last')
+    elif sort_mode == "Date d'ajout (Du plus ancien au plus récent)":
+        if 'date_ajout' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='date_ajout', ascending=True, na_position='last')
+    elif sort_mode == "Titre alphabétique (A ➔ Z)":
+        filtered_df = filtered_df.sort_values(
+            by=col_titre_fr,
+            key=lambda x: x.astype(str).str.lower(),
+            ascending=True
+        )
+    elif sort_mode == "Titre alphabétique (Z ➔ A)":
+        filtered_df = filtered_df.sort_values(
+            by=col_titre_fr,
+            key=lambda x: x.astype(str).str.lower(),
+            ascending=False
+        )
+
+    with col_sort2:
+        st.markdown(f"<div style='padding-top: 28px; font-weight: bold;'>Films affichés : {len(filtered_df):,} / {len(df):,}</div>".replace(',', ' '), unsafe_allow_html=True)
+
     render_custom_table(filtered_df, key_id="f1_consultation")
 
 
@@ -515,8 +578,11 @@ else:
     with col_g4:
         st.subheader("📅 Évolution des Ajouts par Année")
         if 'date_ajout' in df.columns:
-            annees = df['date_ajout'].astype(str).str.extract(r'(\d{4})$')[0].dropna()
-            annee_counts = annees.value_counts().sort_index()
+            if pd.api.types.is_datetime64_any_dtype(df['date_ajout']):
+                annee_counts = df['date_ajout'].dt.year.value_counts().sort_index()
+            else:
+                annees = df['date_ajout'].astype(str).str.extract(r'(\d{4})$')[0].dropna()
+                annee_counts = annees.value_counts().sort_index()
             if not annee_counts.empty:
                 st.bar_chart(annee_counts)
 
