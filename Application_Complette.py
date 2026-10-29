@@ -11,7 +11,7 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="Gestionnaire d'Inventaire Films & IMDb",
+    page_title="Gestionnaire d'Inventaire Films & IMDb V4.4.0",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -19,7 +19,7 @@ st.set_page_config(
 
 # --- FONCTION UNIVERSELLE DE CHARGEMENT & PRÉPARATION ---
 def load_and_prepare_csv(filepath_or_buffer):
-    """Charge le fichier CSV consolidé, convertit les identifiants en vrai type numérique pour un tri exact."""
+    """Charge le fichier CSV consolidé (avec Année, Durée et Studio), convertit les identifiants en vrai type numérique pour un tri exact."""
     if isinstance(filepath_or_buffer, str):
         with open(filepath_or_buffer, 'rb') as f:
             bytes_data = f.read()
@@ -82,29 +82,39 @@ def load_and_prepare_csv(filepath_or_buffer):
             df_loaded[c] = df_loaded[c].fillna('').astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             df_loaded.loc[df_loaded[c].isin(['nan', 'none', 'null']), c] = ''
 
-    # 3. Conversion chronologique stricte des dates
+    # 3. Conversion chronologique stricte des dates d'ajout
     for date_col in ['date_ajout', 'date_coffret', 'date_sortie']:
         if date_col in df_loaded.columns:
             df_loaded[date_col] = pd.to_datetime(df_loaded[date_col], format='%d/%m/%Y', errors='coerce')
 
-    # 4. Extraction propre des Genres si type_film est présent
+    # 4. Conversion numérique de l'ANNÉE DE SORTIE (annee)
+    col_annee = next((c for c in df_loaded.columns if c.lower() in ['annee', 'année', 'year', 'release_year']), None)
+    if col_annee:
+        df_loaded['annee_num'] = pd.to_numeric(df_loaded[col_annee].astype(str).str.extract(r'(\d{4})')[0], errors='coerce').astype('Int64')
+
+    # 5. Conversion numérique de la DURÉE EN MINUTES (duree_minutes)
+    col_duree = next((c for c in df_loaded.columns if 'duree' in c.lower() or 'durée' in c.lower() or 'runtime' in c.lower() or 'minutes' in c.lower()), None)
+    if col_duree:
+        df_loaded['duree_num'] = pd.to_numeric(df_loaded[col_duree].astype(str).str.extract(r'(\d+)')[0], errors='coerce').astype('Int64')
+
+    # 6. Extraction propre des Genres si type_film est présent
     if 'type_film' in df_loaded.columns and 'genres' not in df_loaded.columns:
         df_loaded['genres'] = df_loaded['type_film'].str.extract(r'\((.*?)\)')[0].fillna('')
         df_loaded['genres'] = df_loaded['genres'].str.replace(';', ', ')
 
-    # 5. Conversion numérique de la note IMDb
+    # 7. Conversion numérique de la note IMDb
     col_rating = next((c for c in df_loaded.columns if 'rating' in c.lower() or 'note' in c.lower()), None)
     if col_rating:
         df_loaded['rating_num'] = pd.to_numeric(df_loaded[col_rating].astype(str).str.replace(',', '.'), errors='coerce')
 
-    # 6. Détection des titres français et VO
+    # 8. Détection des titres français et VO
     col_t_fr = next((c for c in df_loaded.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais', 'titre_vf']), None)
     if not col_t_fr:
         col_t_fr = next((c for c in df_loaded.columns if 'titre' in c.lower() or 'title' in c.lower()), df_loaded.columns[0])
 
     col_t_vo = next((c for c in df_loaded.columns if c.lower() in ['titre_anglais', 'titre_original', 'titre_en_imdb', 'titre_global', 'titre_vo'] and c != col_t_fr), None)
 
-    # 7. Synthèse claire des supports physiques & packagings
+    # 9. Synthèse claire des supports physiques & packagings
     def extract_supports_str(row):
         badges = []
         if str(row.get('4K', '')).strip().upper() == 'OUI': badges.append('4K UHD')
@@ -127,7 +137,7 @@ def load_and_prepare_csv(filepath_or_buffer):
 
     df_loaded['supports'] = df_loaded.apply(extract_supports_str, axis=1)
 
-    # 8. Colonne Lien IMDb cliquable garantie
+    # 10. Colonne Lien IMDb cliquable garantie
     col_raw_lien = next((c for c in df_loaded.columns if 'imdb' in c.lower() and ('lien' in c.lower() or 'url' in c.lower() or 'link' in c.lower())), None)
     col_raw_id = next((c for c in df_loaded.columns if 'imdb' in c.lower() and ('no_' in c.lower() or 'id' in c.lower()) and c != col_raw_lien), None)
 
@@ -166,24 +176,18 @@ def load_and_prepare_csv(filepath_or_buffer):
 st.sidebar.header("📂 Données de l'Inventaire")
 
 candidate_paths = [
+    r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Final.csv",
+    r"C:\_Test_Code_Python\uploads\outputs\Liste_Complette_Film_Consolidee_Final.csv",
+    r"C:\_Test_Code_Python\Liste_Complette_Film_Consolidee_Final.csv",
+    r"/workspace/files/personal_files/uploads/Liste_Complette_Film_Consolidee_Final.csv",
+    r"/uploads/Liste_Complette_Film_Consolidee_Final.csv",
+    r"Liste_Complette_Film_Consolidee_Final.csv",
     r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
     r"C:\_Test_Code_Python\uploads\outputs\Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
     r"C:\_Test_Code_Python\Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
     r"/workspace/files/personal_files/uploads/Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
     r"/uploads/Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
     r"Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv",
-    r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"C:\_Test_Code_Python\uploads\outputs\Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"C:\_Test_Code_Python\Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"/workspace/files/personal_files/uploads/Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"/uploads/Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"Liste_Complette_Film_Consolidee_Final_NOUVEAU.csv",
-    r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Step5.csv",
-    r"C:\_Test_Code_Python\uploads\outputs\Liste_Complette_Film_Consolidee_Step5.csv",
-    r"C:\_Test_Code_Python\Liste_Complette_Film_Consolidee_Step5.csv",
-    r"/workspace/files/personal_files/uploads/Liste_Complette_Film_Consolidee_Step5.csv",
-    r"/uploads/Liste_Complette_Film_Consolidee_Step5.csv",
-    r"Liste_Complette_Film_Consolidee_Step5.csv",
     r"C:\_Test_Code_Python\uploads",
     r"C:\_Test_Code_Python",
     r"./uploads",
@@ -207,7 +211,7 @@ if 'df_films' not in st.session_state:
         elif os.path.isdir(p):
             try:
                 files = [os.path.join(p, f) for f in os.listdir(p) if f.lower().endswith(('.csv', '.txt'))]
-                files.sort(key=lambda x: ('nouveau_2' in x.lower(), 'nouveau' in x.lower(), 'final' in x.lower(), 'step5' in x.lower(), 'imdb' in x.lower(), os.path.getmtime(x)), reverse=True)
+                files.sort(key=lambda x: ('final' in x.lower(), '44' in x.lower(), 'nouveau_2' in x.lower(), 'nouveau' in x.lower(), os.path.getmtime(x)), reverse=True)
                 if files:
                     loaded_df = load_and_prepare_csv(files[0])
                     loaded_name = os.path.basename(files[0])
@@ -222,6 +226,8 @@ if 'df_films' not in st.session_state:
             'ID Unique': pd.Series(range(1, 31), dtype='Int64'),
             'barcode': [f"3700000{i:03d}" for i in range(1, 31)],
             'titre': [f"Film Exemple {i}" for i in range(1, 31)],
+            'annee': [f"{2000 + (i % 25)}" for i in range(1, 31)],
+            'duree_minutes': [f"{85 + (i * 3)}" for i in range(1, 31)],
             'genres': ['Action, Sci-Fi' if i % 2 == 0 else 'Comedy, Drama' for i in range(1, 31)],
             'directeur': ['Steven Spielberg' if i % 3 == 0 else 'Christopher Nolan' for i in range(1, 31)],
             'acteurs_principaux': ['Tom Hanks, Leonardo DiCaprio' for _ in range(30)],
@@ -238,6 +244,8 @@ if 'df_films' not in st.session_state:
             '3D': ['OUI' if i % 6 == 0 else '' for i in range(1, 31)]
         }
         loaded_df = pd.DataFrame(data_demo)
+        loaded_df['annee_num'] = pd.to_numeric(loaded_df['annee'], errors='coerce').astype('Int64')
+        loaded_df['duree_num'] = pd.to_numeric(loaded_df['duree_minutes'], errors='coerce').astype('Int64')
         loaded_df['rating_num'] = pd.to_numeric(loaded_df['rating_imdb'], errors='coerce')
         loaded_df['Lien IMDb'] = [f"https://www.imdb.com/title/tt{1000000+i}/" for i in range(1, 31)]
         loaded_name = "Mode Démo"
@@ -248,7 +256,7 @@ if 'df_films' not in st.session_state:
 # Contrôle manuel du chemin
 input_custom_path = st.sidebar.text_input(
     "Chemin du fichier / dossier CSV :",
-    value=st.session_state.get('source_name', r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Final_NOUVEAU_2.csv")
+    value=st.session_state.get('source_name', r"C:\_Test_Code_Python\uploads\Liste_Complette_Film_Consolidee_Final.csv")
 )
 
 if st.sidebar.button("🔄 Charger / Recharger ce fichier"):
@@ -256,7 +264,7 @@ if st.sidebar.button("🔄 Charger / Recharger ce fichier"):
         target = input_custom_path
         if os.path.isdir(input_custom_path):
             candidates = [os.path.join(input_custom_path, f) for f in os.listdir(input_custom_path) if f.lower().endswith(('.csv', '.txt'))]
-            candidates.sort(key=lambda x: ('nouveau_2' in x.lower(), 'nouveau' in x.lower(), 'final' in x.lower(), 'step5' in x.lower(), 'imdb' in x.lower(), os.path.getmtime(x)), reverse=True)
+            candidates.sort(key=lambda x: ('final' in x.lower(), '44' in x.lower(), 'nouveau_2' in x.lower(), 'nouveau' in x.lower(), os.path.getmtime(x)), reverse=True)
             target = candidates[0] if candidates else None
 
         if target and os.path.isfile(target):
@@ -322,8 +330,12 @@ col_director = next((c for c in df.columns if 'directeur' in c.lower() or 'direc
 col_actors = next((c for c in df.columns if 'acteur' in c.lower() or 'actor' in c.lower() or 'casting' in c.lower()), None)
 col_genres = 'genres' if 'genres' in df.columns else next((c for c in df.columns if 'genre' in c.lower() or 'type' in c.lower()), None)
 
-# Détection de la nouvelle colonne Z : Production_Corp (Studio / Maison de production)
+# Colonne Studio / Production
 col_production = next((c for c in df.columns if 'production' in c.lower() or 'corp' in c.lower() or 'studio' in c.lower()), None)
+
+# Colonnes Année et Durée
+has_annee = 'annee_num' in df.columns or 'annee' in df.columns
+has_duree = 'duree_num' in df.columns or 'duree_minutes' in df.columns
 
 # Fonction d'affichage standardisée avec configuration Streamlit propre
 def render_custom_table(dataframe, key_id):
@@ -362,7 +374,28 @@ def render_custom_table(dataframe, key_id):
             width="small"
         )
 
-    # Configuration des dates
+    # Configuration Année & Durée
+    if 'annee_num' in dataframe.columns:
+        col_cfg['annee_num'] = st.column_config.NumberColumn(
+            "📅 Année",
+            format="%d",
+            help="Année de sortie en salles",
+            width="small"
+        )
+    elif 'annee' in dataframe.columns:
+        col_cfg['annee'] = st.column_config.TextColumn("📅 Année", help="Année de sortie", width="small")
+
+    if 'duree_num' in dataframe.columns:
+        col_cfg['duree_num'] = st.column_config.NumberColumn(
+            "⏱️ Durée",
+            format="%d min",
+            help="Durée totale du film en minutes",
+            width="small"
+        )
+    elif 'duree_minutes' in dataframe.columns:
+        col_cfg['duree_minutes'] = st.column_config.TextColumn("⏱️ Durée", help="Durée en minutes", width="small")
+
+    # Configuration des dates d'ajout
     if 'date_ajout' in dataframe.columns and pd.api.types.is_datetime64_any_dtype(dataframe['date_ajout']):
         col_cfg['date_ajout'] = st.column_config.DateColumn(
             "Date d'ajout",
@@ -399,14 +432,24 @@ def render_custom_table(dataframe, key_id):
     if 'rating_num' in display_df.columns and 'rating_imdb' in display_df.columns:
         display_df = display_df.drop(columns=['rating_num'])
 
-    # Ordre de présentation clair avec identifiants en tête et Production_Corp intégrée
+    # Si on utilise annee_num et duree_num, on masque les chaînes brutes redondantes
+    cols_to_exclude = ['source', 'pos_source', 'page', 'id', 'id_film']
+    if 'annee_num' in display_df.columns and 'annee' in display_df.columns:
+        cols_to_exclude.append('annee')
+    if 'duree_num' in display_df.columns and 'duree_minutes' in display_df.columns:
+        cols_to_exclude.append('duree_minutes')
+
+    # Ordre de présentation clair avec Année & Durée au cœur de la fiche
+    col_annee_disp = 'annee_num' if 'annee_num' in display_df.columns else ('annee' if 'annee' in display_df.columns else None)
+    col_duree_disp = 'duree_num' if 'duree_num' in display_df.columns else ('duree_minutes' if 'duree_minutes' in display_df.columns else None)
+
     preferred_order = [c for c in [
         'Position', 'Repère', 'ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr,
-        'rating_imdb', 'supports', col_genres, col_director, col_actors, col_production,
-        'date_ajout', 'pays', col_barcode, 'Lien IMDb'
+        col_annee_disp, col_duree_disp, 'rating_imdb', 'supports', col_genres, col_director,
+        col_actors, col_production, 'date_ajout', 'pays', col_barcode, 'Lien IMDb'
     ] if c and c in display_df.columns]
 
-    other_cols = [c for c in display_df.columns if c not in preferred_order and c not in ['source', 'pos_source', 'page', 'id', 'id_film']]
+    other_cols = [c for c in display_df.columns if c not in preferred_order and c not in cols_to_exclude]
     display_df = display_df[preferred_order + other_cols]
 
     st.dataframe(
@@ -499,17 +542,17 @@ if menu == "1° Consultation globale avec filtres enrichis":
 
     filtered_df = df.copy()
 
-    # Barre de recherche textuelle globale (avec ID MyMovie, ID Unique et Studio inclus)
-    search_text = st.text_input("🔍 Recherche rapide (Titre VF/VO, ID MyMovie, ID Unique, Réalisateur, Acteur, Studio, Code-barres...) :", "").strip().lower()
+    # Barre de recherche textuelle globale (avec Année, ID MyMovie, ID Unique et Studio inclus)
+    search_text = st.text_input("🔍 Recherche rapide (Titre VF/VO, Année, ID MyMovie, ID Unique, Réalisateur, Acteur, Studio, Code-barres...) :", "").strip().lower()
     if search_text:
         mask = False
-        cols_to_search = ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, col_titre_vo, col_barcode, col_director, col_actors, col_genres, col_production, 'supports']
+        cols_to_search = ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, col_titre_vo, 'annee', 'annee_num', 'duree_minutes', col_barcode, col_director, col_actors, col_genres, col_production, 'supports']
         for c in cols_to_search:
             if c and c in filtered_df.columns:
                 mask = mask | filtered_df[c].astype(str).str.lower().str.contains(search_text, na=False)
         filtered_df = filtered_df[mask]
 
-    # Filtres interactifs enrichis (5 colonnes incluant Studio / Production)
+    # Filtres interactifs enrichis (5 colonnes)
     f_c1, f_c2, f_c3, f_c4, f_c5 = st.columns(5)
 
     # 1. Filtre Formats Physiques & Packagings
@@ -577,7 +620,7 @@ if menu == "1° Consultation globale avec filtres enrichis":
             if sel_director:
                 filtered_df = filtered_df[filtered_df[col_director].isin(sel_director)]
 
-    # 5. Filtre Studios & Sociétés de Production (Colonne Z)
+    # 5. Filtre Studios & Sociétés de Production
     with f_c5:
         if col_production and col_production in df.columns:
             all_studios = sorted([str(s).strip() for s in df[col_production].dropna().unique() if str(s).strip()])
@@ -585,7 +628,27 @@ if menu == "1° Consultation globale avec filtres enrichis":
             if sel_studios:
                 filtered_df = filtered_df[filtered_df[col_production].isin(sel_studios)]
 
-    # --- SÉLECTEUR DE TRI DÉDIÉ (NUMÉRIQUE, CHRONOLOGIQUE, ALPHABÉTIQUE) ---
+    # Volet de filtres chronologiques & de durée
+    with st.expander("⏳ Filtres chronologiques & de durée (Année de sortie & Durée en minutes)", expanded=False):
+        flt_y1, flt_y2 = st.columns(2)
+        with flt_y1:
+            if 'annee_num' in df.columns and df['annee_num'].notna().sum() > 0:
+                min_y = int(df['annee_num'].dropna().min())
+                max_y = int(df['annee_num'].dropna().max())
+                sel_years = st.slider("📅 Période de sortie (Année min - max) :", min_value=min_y, max_value=max_y, value=(min_y, max_y))
+                filtered_df = filtered_df[filtered_df['annee_num'].isna() | ((filtered_df['annee_num'] >= sel_years[0]) & (filtered_df['annee_num'] <= sel_years[1]))]
+            else:
+                st.info("Données d'année non disponibles.")
+        with flt_y2:
+            if 'duree_num' in df.columns and df['duree_num'].notna().sum() > 0:
+                min_d = int(df['duree_num'].dropna().min())
+                max_d = int(df['duree_num'].dropna().max())
+                sel_duree = st.slider("⏱️ Durée du film (en minutes) :", min_value=min_d, max_value=max_d, value=(min_d, max_d))
+                filtered_df = filtered_df[filtered_df['duree_num'].isna() | ((filtered_df['duree_num'] >= sel_duree[0]) & (filtered_df['duree_num'] <= sel_duree[1]))]
+            else:
+                st.info("Données de durée non disponibles.")
+
+    # --- SÉLECTEUR DE TRI DÉDIÉ (NUMÉRIQUE, CHRONOLOGIQUE, ALPHABÉTIQUE, DURÉE) ---
     st.markdown("---")
     s_col1, s_col2 = st.columns([2, 2])
 
@@ -594,6 +657,10 @@ if menu == "1° Consultation globale avec filtres enrichis":
         "ID MyMovie (Numérique N ➔ 1)",
         "ID Unique (Numérique 1 ➔ N)",
         "ID Unique (Numérique N ➔ 1)",
+        "Année de sortie (Du plus récent au plus ancien)",
+        "Année de sortie (Du plus ancien au plus récent)",
+        "Durée (Du plus long au plus court)",
+        "Durée (Du plus court au plus long)",
         "Date d'ajout (Du plus récent au plus ancien)",
         "Date d'ajout (Du plus ancien au plus récent)",
         "Note IMDb (Meilleure note d'abord)",
@@ -603,11 +670,17 @@ if menu == "1° Consultation globale avec filtres enrichis":
     ]
     if 'rating_num' not in df.columns:
         sort_options.remove("Note IMDb (Meilleure note d'abord)")
+    if 'annee_num' not in df.columns:
+        sort_options.remove("Année de sortie (Du plus récent au plus ancien)")
+        sort_options.remove("Année de sortie (Du plus ancien au plus récent)")
+    if 'duree_num' not in df.columns:
+        sort_options.remove("Durée (Du plus long au plus court)")
+        sort_options.remove("Durée (Du plus court au plus long)")
 
     with s_col1:
         sort_mode = st.selectbox("🔽 Trier l'affichage par :", sort_options, index=0)
 
-    # Exécution du tri sélectionné (tri purement numérique pour les ID)
+    # Exécution du tri sélectionné (tri purement numérique pour les ID, Année et Durée)
     if sort_mode == "ID MyMovie (Numérique 1 ➔ N)":
         if 'ID MyMovie' in filtered_df.columns:
             filtered_df = filtered_df.sort_values(by='ID MyMovie', ascending=True, na_position='last')
@@ -620,6 +693,18 @@ if menu == "1° Consultation globale avec filtres enrichis":
     elif sort_mode == "ID Unique (Numérique N ➔ 1)":
         if 'ID Unique' in filtered_df.columns:
             filtered_df = filtered_df.sort_values(by='ID Unique', ascending=False, na_position='last')
+    elif sort_mode == "Année de sortie (Du plus récent au plus ancien)":
+        if 'annee_num' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='annee_num', ascending=False, na_position='last')
+    elif sort_mode == "Année de sortie (Du plus ancien au plus récent)":
+        if 'annee_num' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='annee_num', ascending=True, na_position='last')
+    elif sort_mode == "Durée (Du plus long au plus court)":
+        if 'duree_num' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='duree_num', ascending=False, na_position='last')
+    elif sort_mode == "Durée (Du plus court au plus long)":
+        if 'duree_num' in filtered_df.columns:
+            filtered_df = filtered_df.sort_values(by='duree_num', ascending=True, na_position='last')
     elif sort_mode == "Date d'ajout (Du plus récent au plus ancien)":
         if 'date_ajout' in filtered_df.columns:
             filtered_df = filtered_df.sort_values(by='date_ajout', ascending=False, na_position='last')
@@ -668,7 +753,7 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
 
             st.success(f"🎯 Film identifié : **{film_name}** (Position alphabétique **{idx + 1}** sur {len(sorted_df)}).")
 
-            # Fiche détaillée avec localisation physique MyMovie & ID Unique
+            # Fiche détaillée avec localisation physique MyMovie, Année, Durée, Studio & ID Unique
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
@@ -680,15 +765,30 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
                 if col_director and pd.notna(matched_row.get(col_director)):
                     st.markdown(f"**🎬 Réalisateur :** {matched_row[col_director]}")
             with ci_c2:
+                # Année & Durée
+                annee_val = matched_row.get('annee_num') if 'annee_num' in matched_row and pd.notna(matched_row.get('annee_num')) else matched_row.get('annee')
+                if pd.notna(annee_val) and str(annee_val).strip():
+                    st.markdown(f"**📅 Année de sortie :** `{annee_val}`")
+
+                duree_val = matched_row.get('duree_num') if 'duree_num' in matched_row and pd.notna(matched_row.get('duree_num')) else matched_row.get('duree_minutes')
+                if pd.notna(duree_val) and str(duree_val).strip():
+                    try:
+                        d_int = int(float(str(duree_val)))
+                        h = d_int // 60
+                        m = d_int % 60
+                        st.markdown(f"**⏱️ Durée :** `{d_int} min` ({h}h {m:02d})")
+                    except Exception:
+                        st.markdown(f"**⏱️ Durée :** `{duree_val} min`")
+
                 if 'supports' in matched_row and pd.notna(matched_row['supports']):
                     st.markdown(f"**💿 Formats :** `{matched_row['supports']}`")
                 if col_actors and pd.notna(matched_row.get(col_actors)):
                     st.markdown(f"**👥 Acteurs :** {matched_row[col_actors]}")
                 if col_genres and pd.notna(matched_row.get(col_genres)):
                     st.markdown(f"**🎭 Genres :** {matched_row[col_genres]}")
+            with ci_c3:
                 if col_production and pd.notna(matched_row.get(col_production)) and str(matched_row[col_production]).strip():
                     st.markdown(f"**🏢 Production / Studio :** `{matched_row[col_production]}`")
-            with ci_c3:
                 if 'date_ajout' in matched_row and pd.notna(matched_row['date_ajout']):
                     d_str = matched_row['date_ajout'].strftime('%d/%m/%Y') if hasattr(matched_row['date_ajout'], 'strftime') else str(matched_row['date_ajout'])
                     st.markdown(f"**📅 Date d'ajout :** {d_str}")
@@ -716,15 +816,15 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
 
 
 # ==============================================================================
-# FONCTION 3 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR / STUDIO / ID & IMDB
+# FONCTION 3 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR / STUDIO / ANNÉE / ID & IMDB
 # ==============================================================================
 elif menu == "3° Recherche par titre / réalisateur / acteur & IMDb":
-    st.title("🔍 Recherche par Titre, Réalisateur, Acteur, Studio / Production, ou ID")
-    st.markdown("Recherche multi-critères instantanée : titres, **ID MyMovie**, **ID Unique**, réalisateurs, casting et studios de production.")
+    st.title("🔍 Recherche par Titre, Réalisateur, Acteur, Année, Studio, ou ID")
+    st.markdown("Recherche multi-critères instantanée : titres, **Année**, **ID MyMovie**, **ID Unique**, réalisateurs, casting et studios.")
 
-    query = st.text_input("Saisissez un mot-clé (Titre, ID MyMovie, ID Unique, Réalisateur, Acteur ou Studio) :", "").strip()
+    query = st.text_input("Saisissez un mot-clé (Titre, Année, ID MyMovie, ID Unique, Réalisateur, Acteur ou Studio) :", "").strip()
 
-    title_cols_to_check = [c for c in ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, col_titre_vo, col_director, col_actors, col_production] if c and c in df.columns]
+    title_cols_to_check = [c for c in ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, col_titre_vo, 'annee', 'annee_num', col_director, col_actors, col_production] if c and c in df.columns]
 
     if query:
         q_clean = query.lower()
@@ -751,7 +851,7 @@ elif menu == "3° Recherche par titre / réalisateur / acteur & IMDb":
 # ==============================================================================
 else:
     st.title("📊 Statistiques Complètes de la Collection")
-    st.markdown("Tableau de bord exhaustif de votre vidéothèque : Supports physiques, Boîtiers My Movies, Genres, Réalisateurs, Acteurs, Studios, Notes IMDb et Chronologie.")
+    st.markdown("Tableau de bord exhaustif de votre vidéothèque : Supports, Boîtiers My Movies, Décennies, Durées, Genres, Réalisateurs, Acteurs, Studios et Notes IMDb.")
 
     tot_entries = len(df)
     tot_uniques = df[col_titre_fr].nunique() if col_titre_fr in df.columns else tot_entries
@@ -763,7 +863,16 @@ else:
     count_directors = df[col_director].nunique() if col_director and col_director in df.columns else 0
     count_studios = df[col_production].dropna().str.strip().nunique() if col_production and col_production in df.columns else 0
 
-    # --- KPI CARDS ENRICHIES ---
+    # Statistiques Année & Durée
+    has_annee_stats = 'annee_num' in df.columns and df['annee_num'].notna().sum() > 0
+    min_year = int(df['annee_num'].dropna().min()) if has_annee_stats else None
+    max_year = int(df['annee_num'].dropna().max()) if has_annee_stats else None
+    median_year = int(df['annee_num'].dropna().median()) if has_annee_stats else None
+
+    has_duree_stats = 'duree_num' in df.columns and df['duree_num'].notna().sum() > 0
+    mean_duree = int(df['duree_num'].dropna().mean()) if has_duree_stats else None
+
+    # --- KPI CARDS ENRICHIES (Ligne 1 & Ligne 2) ---
     st.subheader("📌 Indicateurs Clés")
     kpi_c1 = st.columns(6)
     kpi_c1[0].metric("🎬 Total Titres / Films", f"{tot_entries:,}".replace(',', ' '))
@@ -776,6 +885,19 @@ else:
         kpi_c1[3].metric("⭐ Note IMDb", "N/A")
         kpi_c1[4].metric("🏆 Top Notés", "N/A")
     kpi_c1[5].metric("🎥 Réalisateurs répertoriés", f"{count_directors:,}".replace(',', ' '))
+
+    # Seconde rangée d'indicateurs : Année et Durée
+    if has_annee_stats or has_duree_stats:
+        kpi_c2 = st.columns(4)
+        if has_annee_stats:
+            kpi_c2[0].metric("📅 Période Cinématographique", f"{min_year} ➔ {max_year}")
+            kpi_c2[1].metric("🎯 Année Médiane", f"{median_year}")
+        if has_duree_stats:
+            h_m = mean_duree // 60
+            m_m = mean_duree % 60
+            kpi_c2[2].metric("⏱️ Durée Moyenne d'un Film", f"{mean_duree} min ({h_m}h {m_m:02d})")
+            fresque_count = int((df['duree_num'] >= 150).sum())
+            kpi_c2[3].metric("⏳ Fresques Longues (≥ 2h30)", f"{fresque_count:,}".replace(',', ' '))
 
     st.markdown("---")
 
@@ -802,6 +924,33 @@ else:
         "Nombre": [count_dvd, count_br, count_4k, count_sb, count_cf, count_3d]
     }).set_index("Format")
     st.bar_chart(df_sup_chart)
+
+    st.markdown("---")
+
+    # ==========================================================================
+    # --- ANALYSES CHRONOLOGIQUES : DÉCENNIES & TRANCHES DE DURÉE ---
+    # ==========================================================================
+    st.subheader("⏳ Analyses Temporelles : Décennies de Sortie & Tranches de Durée")
+    an_c1, an_c2 = st.columns(2)
+
+    with an_c1:
+        st.markdown("### 📅 Répartition par Décennie de Sortie")
+        if has_annee_stats:
+            decades = (df['annee_num'] // 10 * 10).dropna().astype(int).astype(str) + 's'
+            decades_vc = decades.value_counts().sort_index()
+            st.bar_chart(decades_vc)
+        else:
+            st.info("Données d'année non disponibles.")
+
+    with an_c2:
+        st.markdown("### ⏱️ Répartition par Tranches de Durée")
+        if has_duree_stats:
+            bins = [0, 89, 109, 139, 999]
+            labels = ['< 90 min (Court / Animé)', '90 - 110 min (Standard)', '110 - 140 min (Long)', '≥ 140 min (Fresque / Épique)']
+            duree_cuts = pd.cut(df['duree_num'], bins=bins, labels=labels)
+            st.bar_chart(duree_cuts.value_counts().sort_index())
+        else:
+            st.info("Données de durée non disponibles.")
 
     st.markdown("---")
 
@@ -879,7 +1028,7 @@ else:
 
     st.markdown("---")
 
-    # 4. TOP 20 STUDIOS & SOCIÉTÉS DE PRODUCTION (COLONNE Z)
+    # 4. TOP 20 STUDIOS & SOCIÉTÉS DE PRODUCTION
     if col_production and col_production in df.columns:
         st.markdown("### 🏢 Top 20 des Sociétés de Production & Studios")
         prod_counts = df[col_production].dropna().astype(str).str.strip().value_counts().head(20)
@@ -895,7 +1044,7 @@ else:
 
         st.markdown("---")
 
-    # --- AUTRES ANALYSES : NOTES IMDB, CHRONOLOGIE & PAYS ---
+    # --- AUTRES ANALYSES : NOTES IMDB & CHRONOLOGIE DES AJOUTS ---
     g_c1, g_c2 = st.columns(2)
 
     with g_c1:
@@ -938,6 +1087,8 @@ else:
 
     tabs = st.tabs([
         "🏆 Chefs-d'œuvre (≥ 8.0)",
+        "⏳ Fresques & Films Longs (≥ 150 min)",
+        "🎞️ Classiques (≤ 1980)",
         "🧲 Steelbooks",
         "📦 Coffrets",
         "⚫ 4K UHD",
@@ -955,26 +1106,42 @@ else:
             st.warning("Notes IMDb indisponibles.")
 
     with tabs[1]:
+        if has_duree_stats:
+            long_movies = df[df['duree_num'] >= 150].sort_values(by='duree_num', ascending=False)
+            st.info(f"**{len(long_movies)}** films épiques ou fresques de 2h30 ou plus (≥ 150 min) :")
+            render_custom_table(long_movies, key_id="zoom_long_movies")
+        else:
+            st.warning("Durées indisponibles.")
+
+    with tabs[2]:
+        if has_annee_stats:
+            classic_movies = df[df['annee_num'] <= 1980].sort_values(by='annee_num', ascending=True)
+            st.info(f"**{len(classic_movies)}** grands classiques du cinéma sortis jusqu'en 1980 :")
+            render_custom_table(classic_movies, key_id="zoom_classic_movies")
+        else:
+            st.warning("Années de sortie indisponibles.")
+
+    with tabs[3]:
         sb_rows = df[df['STEELBOOK'].astype(str).str.upper() == 'OUI'] if 'STEELBOOK' in df.columns else df[df.get('jaquette', '').astype(str).str.lower() == 'steelbook']
         st.info(f"**{len(sb_rows)}** éditions Steelbook répertoriées :")
         render_custom_table(sb_rows, key_id="zoom_steelbooks")
 
-    with tabs[2]:
+    with tabs[4]:
         cf_rows = df[df['COFFRET'].astype(str).str.upper() == 'OUI'] if 'COFFRET' in df.columns else df[(df.get('jaquette', '').astype(str).str.lower() == 'coffret') | (pd.to_numeric(df.get('nb_Coffret', 0), errors='coerce') > 0)]
         st.info(f"**{len(cf_rows)}** films issus de Coffrets :")
         render_custom_table(cf_rows, key_id="zoom_coffrets")
 
-    with tabs[3]:
+    with tabs[5]:
         k4_rows = df[df['4K'].astype(str).str.upper() == 'OUI'] if '4K' in df.columns else df[pd.to_numeric(df.get('nb_4K', 0), errors='coerce') > 0]
         st.info(f"**{len(k4_rows)}** éditions 4K Ultra HD :")
         render_custom_table(k4_rows, key_id="zoom_4k")
 
-    with tabs[4]:
+    with tabs[6]:
         d3_rows = df[df['3D'].astype(str).str.upper() == 'OUI'] if '3D' in df.columns else df[df.get('3D', '').astype(str).str.lower() == 'oui']
         st.info(f"**{len(d3_rows)}** éditions 3D :")
         render_custom_table(d3_rows, key_id="zoom_3d")
 
-    with tabs[5]:
+    with tabs[7]:
         if col_director and col_director in df.columns:
             top_5_directors = df[col_director].dropna().value_counts().head(5).index.tolist()
             cult_movies = df[df[col_director].isin(top_5_directors)].sort_values(by=col_director)
@@ -983,7 +1150,7 @@ else:
         else:
             st.warning("Réalisateurs indisponibles.")
 
-    with tabs[6]:
+    with tabs[8]:
         if col_production and col_production in df.columns:
             st.info("Explorez les films par studio ou maison de production :")
             available_studios = sorted([s for s in df[col_production].dropna().unique() if str(s).strip()])
