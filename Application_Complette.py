@@ -4,6 +4,11 @@ import io
 import os
 import re
 import urllib.parse
+from PIL import Image
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 from collections import Counter
 try:
     import altair as alt
@@ -11,7 +16,7 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="Gestionnaire d'Inventaire Films & IMDb V4.4.0",
+    page_title="Gestionnaire d'Inventaire Films & IMDb",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -313,9 +318,10 @@ st.sidebar.markdown("---")
 st.sidebar.header("🧭 Menu des Fonctions")
 menu = st.sidebar.radio("Sélectionnez la fonction :", [
     "1° Consultation globale avec filtres enrichis",
-    "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)",
-    "3° Recherche par titre / réalisateur / acteur & IMDb",
-    "4° Statistiques complètes de la collection"
+    "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)",
+    "3° Scan Code-Barres par Caméra (Smartphone / Webcam)",
+    "4° Recherche par titre / réalisateur / acteur & IMDb",
+    "5° Statistiques complètes de la collection"
 ])
 
 # Détection unifiée des colonnes
@@ -726,34 +732,101 @@ if menu == "1° Consultation globale avec filtres enrichis":
 
 
 # ==============================================================================
-# FONCTION 2 : SAISIE CODE-BARRES (5 AVANT / 5 APRÈS - TRI ALPHA)
+# FONCTION 2 : SAISIE CODE-BARRES (DOUCHETTE USB - 5 AVANT / 5 APRÈS)
 # ==============================================================================
-elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
-    st.title("📦 Saisie Code-Barres & Voisinage Alphabétique")
-    st.markdown(f"Entrez ou scannez un code-barres : l'inventaire est trié alphabétiquement sur **`{col_titre_fr}`** et affiche le film identifié ainsi que **ses 5 voisins précédents et ses 5 voisins suivants** avec son **ID MyMovie** pour le retrouver physiquement.")
+elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
+    st.title("📦 Saisie Code-Barres & Voisinage Alphabétique (Douchette USB)")
+    st.markdown(f"Entrez ou scannez un code-barres avec une douchette USB : l'inventaire est trié alphabétiquement sur **`{col_titre_fr}`** et affiche le film identifié ainsi que **ses 5 voisins précédents et ses 5 voisins suivants** avec son **ID MyMovie** pour le repérer ou le ranger sur votre étagère.")
 
     sorted_df = df.sort_values(
         by=col_titre_fr,
         key=lambda x: x.astype(str).str.lower()
     ).reset_index(drop=True)
 
-    cb_in = st.text_input("Saisissez ou scannez le code-barres :", "").strip()
+    series_b = sorted_df[col_barcode].fillna('').astype(str).str.strip()
 
-    if cb_in:
-        mask_match = (sorted_df[col_barcode].astype(str).str.strip() == cb_in)
-        if not mask_match.any():
-            mask_match = sorted_df[col_barcode].astype(str).str.contains(cb_in, na=False)
+    scan_c1, scan_c2 = st.columns([5, 1])
+    with scan_c1:
+        cb_raw = st.text_input(
+            "Scannez à la douchette ou saisissez le code-barres (ou un Titre / ID en secours) :",
+            value="",
+            key="input_cb_scan",
+            placeholder="Ex: 3344428038830, 5051889673620, ou titre de film..."
+        )
+    with scan_c2:
+        st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Effacer", help="Réinitialiser pour un nouveau scan"):
+            st.rerun()
+
+    if cb_raw:
+        clean_cb = ''.join(ch for ch in str(cb_raw) if ch.isprintable()).strip()
+        clean_cb = re.sub(r'^\][a-zA-Z0-9]{2}', '', clean_cb).strip()
+        clean_cb = re.sub(r'\s+', '', clean_cb)
+
+        if len(clean_cb) >= 26 and clean_cb.isdigit():
+            clean_cb = clean_cb[-13:]
+            st.info(f"ℹ️ Double scan consécutif détecté : le dernier code-barres analysé est **`{clean_cb}`**.")
+        elif len(clean_cb) >= 24 and clean_cb.isdigit():
+            clean_cb = clean_cb[-12:]
+            st.info(f"ℹ️ Double scan consécutif détecté : le dernier code-barres analysé est **`{clean_cb}`**.")
+
+        # Correspondance multi-paliers
+        mask_match = series_b.str.lower() == clean_cb.lower()
+
+        if not mask_match.any() and clean_cb.isdigit():
+            norm_digits = clean_cb.lstrip('0')
+            series_digits = series_b.str.lstrip('0')
+            mask_match = (series_digits == norm_digits) & (series_digits != '')
+            if not mask_match.any():
+                z13 = clean_cb.zfill(13)
+                mask_match = series_b.str.zfill(13) == z13
+
+        if not mask_match.any() and len(clean_cb) >= 6:
+            mask_match = series_b.str.contains(re.escape(clean_cb), case=False, na=False)
 
         match_indices = sorted_df.index[mask_match].tolist()
+        matched_by = "barcode"
+
+        if not match_indices:
+            search_kw = cb_raw.strip().lower()
+            mask_title = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(search_kw), na=False)
+            if 'titre_anglais' in sorted_df.columns:
+                mask_title = mask_title | sorted_df['titre_anglais'].astype(str).str.lower().str.contains(re.escape(search_kw), na=False)
+            if 'ID Unique' in sorted_df.columns and search_kw.isdigit():
+                mask_title = mask_title | (sorted_df['ID Unique'].astype(str) == search_kw)
+
+            match_indices = sorted_df.index[mask_title].tolist()
+            if match_indices:
+                matched_by = "title"
 
         if match_indices:
-            idx = match_indices[0]
+            if len(match_indices) > 1:
+                if matched_by == "barcode":
+                    st.warning(f"📦 **Coffret / Édition Multi-films détectée :** Ce code-barres (`{clean_cb}`) regroupe **{len(match_indices)} films** dans votre collection.")
+                else:
+                    st.info(f"🔍 **Plusieurs correspondances trouvées :** **{len(match_indices)} films** correspondent à « {cb_raw} ».")
+
+                multi_subset = sorted_df.iloc[match_indices].copy()
+                cols_multi = [c for c in ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, 'annee_num', 'duree_num', 'supports', 'Production_Corp'] if c in multi_subset.columns]
+                st.dataframe(multi_subset[cols_multi], hide_index=True, use_container_width=True)
+
+                film_labels = [f"#{sorted_df.iloc[i].get('ID Unique', i)} — {sorted_df.iloc[i][col_titre_fr]} (Position Alpha {i + 1})" for i in match_indices]
+                sel_label = st.selectbox(
+                    "🎯 Sélectionnez le film précis à repérer sur l'étagère (Afficher ses 5 voisins) :",
+                    film_labels,
+                    index=0,
+                    key="sel_film_f2"
+                )
+                sel_pos = film_labels.index(sel_label)
+                idx = match_indices[sel_pos]
+            else:
+                idx = match_indices[0]
+
             matched_row = sorted_df.iloc[idx]
             film_name = matched_row[col_titre_fr]
 
-            st.success(f"🎯 Film identifié : **{film_name}** (Position alphabétique **{idx + 1}** sur {len(sorted_df)}).")
+            st.success(f"🎯 Film identifié : **{film_name}** (Position alphabétique **{idx + 1}** sur {len(sorted_df):,}).".replace(',', ' '))
 
-            # Fiche détaillée avec localisation physique MyMovie, Année, Durée, Studio & ID Unique
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
@@ -765,7 +838,6 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
                 if col_director and pd.notna(matched_row.get(col_director)):
                     st.markdown(f"**🎬 Réalisateur :** {matched_row[col_director]}")
             with ci_c2:
-                # Année & Durée
                 annee_val = matched_row.get('annee_num') if 'annee_num' in matched_row and pd.notna(matched_row.get('annee_num')) else matched_row.get('annee')
                 if pd.notna(annee_val) and str(annee_val).strip():
                     st.markdown(f"**📅 Année de sortie :** `{annee_val}`")
@@ -798,6 +870,8 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
                     st.markdown(f"[🎬 Ouvrir sur IMDb ↗]({matched_row['Lien IMDb']})")
 
             st.markdown("---")
+            st.subheader(f"📍 Emplacement sur l'Étagère (5 Titres Précédents ➔ Film Ciblé ➔ 5 Titres Suivants)")
+
             start_i = max(0, idx - 5)
             end_i = min(len(sorted_df), idx + 6)
 
@@ -805,9 +879,10 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
             subset.insert(0, "Position", [i + 1 for i in range(start_i, end_i)])
             subset.insert(1, "Repère", ["⭐ FILM CIBLÉ" if i == idx else "" for i in range(start_i, end_i)])
 
-            render_custom_table(subset, key_id="f2_barcode_match")
+            render_custom_table(subset, key_id=f"f2_barcode_match_{idx}")
         else:
-            st.error(f"❌ Aucun film trouvé avec le code-barres « {cb_in} ».")
+            st.error(f"❌ Aucun film trouvé avec le code-barres « {cb_raw} ».")
+            st.info("💡 **Astuce :** Vérifiez que la douchette a bien transmis tous les chiffres, ou essayez de taper directement le Titre du film ou son ID.")
             st.markdown("### Inventaire complet (Ordre Alphabétique) :")
             render_custom_table(sorted_df, key_id="f2_barcode_fallback")
     else:
@@ -816,9 +891,189 @@ elif menu == "2° Saisie Code-Barres (5 avant / 5 après - Tri Alpha)":
 
 
 # ==============================================================================
-# FONCTION 3 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR / STUDIO / ANNÉE / ID & IMDB
+# FONCTION 3 : SCAN CODE-BARRES PAR CAMÉRA (SMARTPHONE / WEBCAM)
 # ==============================================================================
-elif menu == "3° Recherche par titre / réalisateur / acteur & IMDb":
+elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
+    st.title("📷 Scan Code-Barres par Caméra (Smartphone / Webcam)")
+    st.markdown("Prenez en photo le code-barres au dos du boîtier avec **l'appareil photo de votre smartphone ou votre webcam** : l'image est automatiquement analysée et décodée pour positionner le film sur votre étagère avec **ses 5 voisins précédents et suivants**.")
+
+    sorted_df = df.sort_values(
+        by=col_titre_fr,
+        key=lambda x: x.astype(str).str.lower()
+    ).reset_index(drop=True)
+
+    series_b = sorted_df[col_barcode].fillna('').astype(str).str.strip()
+
+    cam_tab1, cam_tab2 = st.tabs(["📸 Prendre une photo en direct", "📁 Importer une photo depuis la galerie"])
+
+    img_input = None
+    with cam_tab1:
+        st.caption("Cadrez bien le code-barres au centre de l'écran, évitez les reflets du plastique de la jaquette.")
+        camera_pic = st.camera_input("Prendre la photo du code-barres :", key="cam_barcode_input")
+        if camera_pic is not None:
+            img_input = camera_pic
+
+    with cam_tab2:
+        st.caption("Si vous avez déjà photographié le boîtier ou si l'accès direct caméra est bloqué :")
+        uploaded_pic = st.file_uploader("Choisissez une photo (JPG, PNG) :", type=["jpg", "jpeg", "png", "webp"], key="upload_barcode_input")
+        if uploaded_pic is not None:
+            img_input = uploaded_pic
+
+    detected_code = ""
+    if img_input is not None:
+        try:
+            pil_image = Image.open(img_input)
+            with st.spinner("🔍 Analyse optique et décodage du code-barres en cours..."):
+                detected_code = decode_barcode_from_image(pil_image)
+        except Exception as e:
+            st.error(f"Erreur de lecture de l'image : {e}")
+
+    # Zone de résultat ou de saisie manuelle si le code-barres a été lu ou s'il doit être corrigé
+    st.markdown("---")
+    st.markdown("### 🎯 Résultat de la Détection Optique")
+
+    if img_input is not None:
+        if detected_code:
+            st.success(f"✅ Code-barres détecté avec succès : **`{detected_code}`**")
+        else:
+            st.warning("⚠️ Aucun code-barres net n'a pu être décodé automatiquement.")
+            st.info("💡 **Conseils prise de vue smartphone :**\n- Rapprochez l'objectif pour que le code-barres occupe une large partie de la photo.\n- Inclinez légèrement le boîtier pour chasser le reflet blanc de la lumière.\n- Assurez-vous de la netteté (mise au point).")
+
+    val_cb_cam = st.text_input(
+        "Code-barres identifié (modifiable ou saisie de secours) :",
+        value=detected_code if detected_code else "",
+        key="input_cam_cb_final",
+        placeholder="Ex: 3344428038830 ou titre du film..."
+    ).strip()
+
+    if val_cb_cam:
+        clean_cb = ''.join(ch for ch in str(val_cb_cam) if ch.isprintable()).strip()
+        clean_cb = re.sub(r'^\][a-zA-Z0-9]{2}', '', clean_cb).strip()
+        clean_cb = re.sub(r'\s+', '', clean_cb)
+
+        mask_match = series_b.str.lower() == clean_cb.lower()
+
+        if not mask_match.any() and clean_cb.isdigit():
+            norm_digits = clean_cb.lstrip('0')
+            series_digits = series_b.str.lstrip('0')
+            mask_match = (series_digits == norm_digits) & (series_digits != '')
+            if not mask_match.any():
+                z13 = clean_cb.zfill(13)
+                mask_match = series_b.str.zfill(13) == z13
+
+        if not mask_match.any() and len(clean_cb) >= 6:
+            mask_match = series_b.str.contains(re.escape(clean_cb), case=False, na=False)
+
+        match_indices = sorted_df.index[mask_match].tolist()
+        matched_by = "barcode"
+
+        if not match_indices:
+            search_kw = val_cb_cam.lower()
+            mask_title = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(search_kw), na=False)
+            if 'titre_anglais' in sorted_df.columns:
+                mask_title = mask_title | sorted_df['titre_anglais'].astype(str).str.lower().str.contains(re.escape(search_kw), na=False)
+            if 'ID Unique' in sorted_df.columns and search_kw.isdigit():
+                mask_title = mask_title | (sorted_df['ID Unique'].astype(str) == search_kw)
+
+            match_indices = sorted_df.index[mask_title].tolist()
+            if match_indices:
+                matched_by = "title"
+
+        if match_indices:
+            if len(match_indices) > 1:
+                if matched_by == "barcode":
+                    st.warning(f"📦 **Coffret / Édition Multi-films détectée :** Ce code-barres (`{clean_cb}`) regroupe **{len(match_indices)} films** dans votre collection.")
+                else:
+                    st.info(f"🔍 **Plusieurs correspondances trouvées :** **{len(match_indices)} films** correspondent à votre recherche.")
+
+                multi_subset = sorted_df.iloc[match_indices].copy()
+                cols_multi = [c for c in ['ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr, 'annee_num', 'duree_num', 'supports', 'Production_Corp'] if c in multi_subset.columns]
+                st.dataframe(multi_subset[cols_multi], hide_index=True, use_container_width=True)
+
+                film_labels = [f"#{sorted_df.iloc[i].get('ID Unique', i)} — {sorted_df.iloc[i][col_titre_fr]} (Position Alpha {i + 1})" for i in match_indices]
+                sel_label = st.selectbox(
+                    "🎯 Sélectionnez le film précis à repérer sur l'étagère (Afficher ses 5 voisins) :",
+                    film_labels,
+                    index=0,
+                    key="sel_film_f3"
+                )
+                sel_pos = film_labels.index(sel_label)
+                idx = match_indices[sel_pos]
+            else:
+                idx = match_indices[0]
+
+            matched_row = sorted_df.iloc[idx]
+            film_name = matched_row[col_titre_fr]
+
+            st.success(f"🎯 Film identifié : **{film_name}** (Position alphabétique **{idx + 1}** sur {len(sorted_df):,}).".replace(',', ' '))
+
+            ci_c1, ci_c2, ci_c3 = st.columns(3)
+            with ci_c1:
+                if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
+                    st.markdown(f"**🏷️ ID MyMovie (Boîtier Physique) :** `#{matched_row['ID MyMovie']}`")
+                if 'ID Unique' in matched_row and pd.notna(matched_row['ID Unique']):
+                    st.markdown(f"**🔑 ID Unique :** `{matched_row['ID Unique']}`")
+                if 'Réf Entrée' in matched_row and pd.notna(matched_row['Réf Entrée']) and str(matched_row['Réf Entrée']) != str(matched_row.get('ID Unique')):
+                    st.markdown(f"**📑 Réf Entrée :** `{matched_row['Réf Entrée']}`")
+                if col_director and pd.notna(matched_row.get(col_director)):
+                    st.markdown(f"**🎬 Réalisateur :** {matched_row[col_director]}")
+            with ci_c2:
+                annee_val = matched_row.get('annee_num') if 'annee_num' in matched_row and pd.notna(matched_row.get('annee_num')) else matched_row.get('annee')
+                if pd.notna(annee_val) and str(annee_val).strip():
+                    st.markdown(f"**📅 Année de sortie :** `{annee_val}`")
+
+                duree_val = matched_row.get('duree_num') if 'duree_num' in matched_row and pd.notna(matched_row.get('duree_num')) else matched_row.get('duree_minutes')
+                if pd.notna(duree_val) and str(duree_val).strip():
+                    try:
+                        d_int = int(float(str(duree_val)))
+                        h = d_int // 60
+                        m = d_int % 60
+                        st.markdown(f"**⏱️ Durée :** `{d_int} min` ({h}h {m:02d})")
+                    except Exception:
+                        st.markdown(f"**⏱️ Durée :** `{duree_val} min`")
+
+                if 'supports' in matched_row and pd.notna(matched_row['supports']):
+                    st.markdown(f"**💿 Formats :** `{matched_row['supports']}`")
+                if col_actors and pd.notna(matched_row.get(col_actors)):
+                    st.markdown(f"**👥 Acteurs :** {matched_row[col_actors]}")
+                if col_genres and pd.notna(matched_row.get(col_genres)):
+                    st.markdown(f"**🎭 Genres :** {matched_row[col_genres]}")
+            with ci_c3:
+                if col_production and pd.notna(matched_row.get(col_production)) and str(matched_row[col_production]).strip():
+                    st.markdown(f"**🏢 Production / Studio :** `{matched_row[col_production]}`")
+                if 'date_ajout' in matched_row and pd.notna(matched_row['date_ajout']):
+                    d_str = matched_row['date_ajout'].strftime('%d/%m/%Y') if hasattr(matched_row['date_ajout'], 'strftime') else str(matched_row['date_ajout'])
+                    st.markdown(f"**📅 Date d'ajout :** {d_str}")
+                if 'rating_imdb' in matched_row and pd.notna(matched_row['rating_imdb']):
+                    st.markdown(f"**⭐ Note IMDb :** `{matched_row['rating_imdb']} / 10`")
+                if 'Lien IMDb' in matched_row and matched_row['Lien IMDb']:
+                    st.markdown(f"[🎬 Ouvrir sur IMDb ↗]({matched_row['Lien IMDb']})")
+
+            st.markdown("---")
+            st.subheader(f"📍 Emplacement sur l'Étagère (5 Titres Précédents ➔ Film Ciblé ➔ 5 Titres Suivants)")
+
+            start_i = max(0, idx - 5)
+            end_i = min(len(sorted_df), idx + 6)
+
+            subset = sorted_df.iloc[start_i:end_i].copy()
+            subset.insert(0, "Position", [i + 1 for i in range(start_i, end_i)])
+            subset.insert(1, "Repère", ["⭐ FILM CIBLÉ" if i == idx else "" for i in range(start_i, end_i)])
+
+            render_custom_table(subset, key_id=f"f3_cam_match_{idx}")
+        else:
+            st.error(f"❌ Aucun film trouvé avec le code-barres « {val_cb_cam} ».")
+            st.info("💡 **Astuce :** Vérifiez la saisie ou tapez directement le Titre du film.")
+            st.markdown("### Inventaire complet (Ordre Alphabétique) :")
+            render_custom_table(sorted_df, key_id="f3_cam_fallback")
+    else:
+        st.markdown("### Inventaire complet (Ordre Alphabétique) :")
+        render_custom_table(sorted_df, key_id="f3_cam_default")
+
+
+# ==============================================================================
+# FONCTION 4 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR / STUDIO / ANNÉE / ID & IMDB
+# ==============================================================================
+elif menu == "4° Recherche par titre / réalisateur / acteur & IMDb":
     st.title("🔍 Recherche par Titre, Réalisateur, Acteur, Année, Studio, ou ID")
     st.markdown("Recherche multi-critères instantanée : titres, **Année**, **ID MyMovie**, **ID Unique**, réalisateurs, casting et studios.")
 
