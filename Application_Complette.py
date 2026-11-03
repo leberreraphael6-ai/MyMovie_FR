@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+import math
 import re
 import urllib.parse
 from PIL import Image
@@ -320,9 +321,22 @@ menu = st.sidebar.radio("Sélectionnez la fonction :", [
     "1° Consultation globale avec filtres enrichis",
     "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)",
     "3° Scan Code-Barres par Caméra (Smartphone / Webcam)",
-    "4° Recherche par titre / réalisateur / acteur & IMDb",
-    "5° Statistiques complètes de la collection"
+    "4° Cartographie RACK & Stockage Industriel (WMS)",
+    "5° Scanner Anti-Doublon Mobile & Wishlist Magasin",
+    "6° Audit Qualité : Doublons réels & Opportunités d'Upgrades 4K",
+    "7° Sagathèque & Dossier d'Assurance Certifié",
+    "8° Recherche par titre / réalisateur / acteur & IMDb",
+    "9° Statistiques complètes de la collection"
 ])
+
+# Paramétrage logistique RACK dans la barre latérale
+st.sidebar.markdown("---")
+st.sidebar.subheader("🏢 Topologie de Stockage RACK")
+nb_racks_cfg = st.sidebar.slider("Nombre de Racks (Meubles) :", min_value=1, max_value=20, value=8, key="cfg_nb_racks")
+nb_etageres_cfg = st.sidebar.slider("Étagères par Rack :", min_value=1, max_value=12, value=7, key="cfg_nb_etageres")
+capa_calc_etagere = math.ceil(len(df) / (nb_racks_cfg * nb_etageres_cfg))
+st.sidebar.caption(f"Capacité requise : ~**{capa_calc_etagere}** boîtiers / étagère")
+st.sidebar.caption(f"Magasin total : **{nb_racks_cfg} Racks** x **{nb_etageres_cfg} Étagères** = **{nb_racks_cfg * nb_etageres_cfg} tablettes**")
 
 # Détection unifiée des colonnes
 col_titre_fr = next((c for c in df.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais', 'titre_vf']), None)
@@ -829,6 +843,8 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
 
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
+                r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
+                st.markdown(f"**🏢 Emplacement RACK :** `{addr_lbl}`")
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
                     st.markdown(f"**🏷️ ID MyMovie (Boîtier Physique) :** `#{matched_row['ID MyMovie']}`")
                 if 'ID Unique' in matched_row and pd.notna(matched_row['ID Unique']):
@@ -1009,6 +1025,8 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
 
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
+                r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
+                st.markdown(f"**🏢 Emplacement RACK :** `{addr_lbl}`")
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
                     st.markdown(f"**🏷️ ID MyMovie (Boîtier Physique) :** `#{matched_row['ID MyMovie']}`")
                 if 'ID Unique' in matched_row and pd.notna(matched_row['ID Unique']):
@@ -1071,9 +1089,428 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
 
 
 # ==============================================================================
-# FONCTION 4 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR / STUDIO / ANNÉE / ID & IMDB
+# FONCTION 4 : CARTOGRAPHIE RACK & STOCKAGE INDUSTRIEL (WMS)
 # ==============================================================================
-elif menu == "4° Recherche par titre / réalisateur / acteur & IMDb":
+elif menu == "4° Cartographie RACK & Stockage Industriel (WMS)":
+    st.title("🏢 Cartographie RACK & Stockage Industriel (WMS)")
+    st.markdown("Système de gestion d'emplacement logistique pour vidéothèque physique : vos **4 771 films** sont modélisés selon la norme industrielle standard **`[RACK ➔ ÉTAGÈRE ➔ EMPLACEMENT]`** basée sur le tri alphabétique rigoureux.")
+
+    sorted_df = df.sort_values(
+        by=col_titre_fr,
+        key=lambda x: x.astype(str).str.lower()
+    ).reset_index(drop=True)
+
+    total_films = len(sorted_df)
+    total_tablettes = nb_racks_cfg * nb_etageres_cfg
+    capa_par_etagere = math.ceil(total_films / total_tablettes) if total_tablettes > 0 else 1
+    capacite_theorique = total_tablettes * capa_par_etagere
+    taux_occupation = (total_films / capacite_theorique * 100) if capacite_theorique > 0 else 100.0
+
+    # KPI Logistiques
+    kpi_w1, kpi_w2, kpi_w3, kpi_w4 = st.columns(4)
+    with kpi_w1:
+        st.metric("📦 Unités Stockées", f"{total_films:,}".replace(',', ' '))
+    with kpi_w2:
+        st.metric("🏢 Racks Physiques", f"{nb_racks_cfg} Racks")
+    with kpi_w3:
+        st.metric("📐 Tablettes Actives", f"{total_tablettes} Étagères")
+    with kpi_w4:
+        st.metric("📊 Taux de Remplissage", f"{taux_occupation:.1f} %", f"~{capa_par_etagere} boîtiers/tablette")
+
+    st.markdown("---")
+
+    # Onglets d'exploitation logistique
+    tab_rack_visu, tab_rack_search, tab_rack_labels = st.tabs([
+        "🗺️ Coupe 2D du Meuble (Visualisation Rack)",
+        "🎯 Recherche Directe d'Emplacement",
+        "🏷️ Répertoire des Bornes & Étiquettes"
+    ])
+
+    with tab_rack_visu:
+        st.subheader("Inspection Visuelle par Rack (Meuble)")
+        rack_selected = st.selectbox(
+            "Sélectionnez le RACK (Meuble / Colonne) à inspecter :",
+            [f"RACK {r:02d}" for r in range(1, nb_racks_cfg + 1)],
+            index=0
+        )
+        r_num = int(rack_selected.split()[1])
+
+        st.caption(f"Visualisation en coupe verticale du **{rack_selected}** (du haut vers le bas, de l'Étagère 01 à l'Étagère {nb_etageres_cfg:02d}) :")
+
+        for e_num in range(1, nb_etageres_cfg + 1):
+            # Calcul des indices de films sur cette étagère
+            start_idx = ((r_num - 1) * nb_etageres_cfg + (e_num - 1)) * capa_par_etagere
+            end_idx = min(start_idx + capa_par_etagere, total_films)
+
+            if start_idx < total_films:
+                shelf_films = sorted_df.iloc[start_idx:end_idx]
+                first_title = shelf_films.iloc[0][col_titre_fr]
+                last_title = shelf_films.iloc[-1][col_titre_fr]
+                nb_on_shelf = len(shelf_films)
+
+                # Rendu visuel d'une tablette d'étagère
+                st.markdown(
+                    f"""<div style='background: #1e293b; border-left: 6px solid #0284c7; padding: 12px 18px; border-radius: 8px; margin-bottom: 10px;'>
+                        <div style='display: flex; justify-content: space-between; align-items: center;'>
+                            <span style='font-size: 1.15rem; font-weight: bold; color: #38bdf8;'>📑 {rack_selected} — ÉTAGÈRE {e_num:02d}</span>
+                            <span style='background: #0369a1; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.85rem;'>{nb_on_shelf} / {capa_par_etagere} boîtiers</span>
+                        </div>
+                        <div style='color: #cbd5e1; margin-top: 6px; font-size: 0.95rem;'>
+                            🔤 <b>Bornes alphabétiques :</b> <code style='color: #f1f5f9;'>{first_title[:28]}</code> ➔ <code style='color: #f1f5f9;'>{last_title[:28]}</code>
+                        </div>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
+
+                with st.expander(f"📋 Déplier l'inventaire complet de l'Étagère {e_num:02d} ({nb_on_shelf} films)") :
+                    view_shelf = shelf_films[[c for c in ['ID MyMovie', 'ID Unique', col_titre_fr, 'annee_num', 'duree_num', 'supports', 'Production_Corp', col_barcode] if c in shelf_films.columns]].copy()
+                    view_shelf.insert(0, "Emplacement", [f"P {p:03d}" for p in range(1, nb_on_shelf + 1)])
+                    st.dataframe(view_shelf, use_container_width=True, hide_index=True)
+            else:
+                st.markdown(f"**📑 {rack_selected} — ÉTAGÈRE {e_num:02d} :** *(Emplacement vide / Réserve future)*")
+
+    with tab_rack_search:
+        st.subheader("Calculateur d'Emplacement Immédiat")
+        st.markdown("Recherchez un titre ou scannez un code-barres pour obtenir son adresse logistique exacte :")
+
+        srch_in = st.text_input("Titre, ID MyMovie ou Code-barres :", key="rack_search_input").strip()
+        if srch_in:
+            m_found = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(srch_in.lower()), na=False)
+            if col_barcode in sorted_df.columns:
+                m_found = m_found | (sorted_df[col_barcode].astype(str).str.strip() == srch_in)
+            if 'ID Unique' in sorted_df.columns and srch_in.isdigit():
+                m_found = m_found | (sorted_df['ID Unique'].astype(str) == srch_in)
+
+            f_indices = sorted_df.index[m_found].tolist()
+            if f_indices:
+                if len(f_indices) > 1:
+                    opts = [f"#{sorted_df.iloc[i].get('ID Unique', i)} — {sorted_df.iloc[i][col_titre_fr]} (Pos {i+1})" for i in f_indices]
+                    sel_opt = st.selectbox("Plusieurs correspondances trouvées :", opts, key="rack_f_choice")
+                    target_i = f_indices[opts.index(sel_opt)]
+                else:
+                    target_i = f_indices[0]
+
+                r_t, e_t, p_t, _, addr_res = get_rack_info(target_i)
+                row_t = sorted_df.iloc[target_i]
+
+                st.success(f"🎯 **{row_t[col_titre_fr]}** localisé avec succès !")
+                st.markdown(f"### 📍 Adresse de Stockage : `{addr_res}`")
+
+                w1, w2, w3 = st.columns(3)
+                w1.metric("🏢 Meuble / Rack", f"RACK {r_t:02d}")
+                w2.metric("📑 Niveau / Étagère", f"ÉTAGÈRE {e_t:02d}")
+                w3.metric("📍 Position de Gauche à Droite", f"Emplacement #{p_t:03d}")
+
+                st.markdown("---")
+                st.subheader(f"Voisinage immédiat sur l'Étagère {e_t:02d} :")
+                s_i = max(0, target_i - 5)
+                e_i = min(total_films, target_i + 6)
+                sub_rack = sorted_df.iloc[s_i:e_i].copy()
+                sub_rack.insert(0, "Position Alpha", [x + 1 for x in range(s_i, e_i)])
+                sub_rack.insert(1, "Repère", ["⭐ FILM CIBLÉ" if x == target_i else "" for x in range(s_i, e_i)])
+                render_custom_table(sub_rack, key_id=f"rack_vw_{target_i}")
+            else:
+                st.error(f"Aucun film correspondant à « {srch_in} ».")
+
+    with tab_rack_labels:
+        st.subheader("Répertoire Global des Bornes de Rayonnage")
+        st.markdown("Générez le plan récapitulatif des étiquettes pour chaque meuble physique :")
+
+        bornes_data = []
+        for r_i in range(1, nb_racks_cfg + 1):
+            for e_i in range(1, nb_etageres_cfg + 1):
+                s_idx = ((r_i - 1) * nb_etageres_cfg + (e_i - 1)) * capa_par_etagere
+                e_idx = min(s_idx + capa_par_etagere, total_films)
+                if s_idx < total_films:
+                    f_tit = sorted_df.iloc[s_idx][col_titre_fr]
+                    l_tit = sorted_df.iloc[e_idx - 1][col_titre_fr]
+                    bornes_data.append({
+                        "RACK": f"RACK {r_i:02d}",
+                        "ÉTAGÈRE": f"ÉTAGÈRE {e_i:02d}",
+                        "Code Tablette": f"R{r_i:02d}-E{e_i:02d}",
+                        "Borne Début": f_tit,
+                        "Borne Fin": l_tit,
+                        "Nombre de Boîtiers": e_idx - s_idx,
+                        "Position Alpha Début": s_idx + 1,
+                        "Position Alpha Fin": e_idx
+                    })
+        bornes_df = pd.DataFrame(bornes_data)
+        st.dataframe(bornes_df, use_container_width=True, hide_index=True)
+
+        csv_bornes = bornes_df.to_csv(sep=';', index=False).encode('utf-8-sig')
+        st.download_button(
+            "📥 Télécharger le Plan des Étiquettes d'Étagères (CSV)",
+            data=csv_bornes,
+            file_name="Plan_Etiquettes_Rayonnage_RACK.csv",
+            mime="text/csv"
+        )
+
+
+# ==============================================================================
+# FONCTION 5 : SCANNER ANTI-DOUBLON MOBILE & WISHLIST MAGASIN
+# ==============================================================================
+elif menu == "5° Scanner Anti-Doublon Mobile & Wishlist Magasin":
+    st.title("📱 Scanner Anti-Doublon Mobile & Wishlist Magasin")
+    st.markdown("Outil de poche optimisé pour smartphone en brocante ou en magasin (Fnac, disquaire). Visez un code-barres ou tapez un titre pour obtenir **une décision d'achat immédiate en 3 couleurs**.")
+
+    sorted_df = df.sort_values(
+        by=col_titre_fr,
+        key=lambda x: x.astype(str).str.lower()
+    ).reset_index(drop=True)
+
+    tab_scan_mag, tab_wishlist = st.tabs(["🛒 Contrôle Anti-Doublon en Rayon", "📝 Ma Wishlist / Liste d'Envies"])
+
+    with tab_scan_mag:
+        st.subheader("Contrôle Instantané avant Achat")
+
+        c_cam, c_txt = st.columns([1, 1])
+        with c_cam:
+            photo_mag = st.camera_input("📸 Viser le code-barres en magasin :", key="cam_mag_input")
+        with c_txt:
+            txt_mag = st.text_input("Ou saisir le code-barres / titre du film convoité :", key="txt_mag_input", placeholder="Ex: 3344428038830 ou Inception...").strip()
+
+        scan_to_check = txt_mag
+        if photo_mag is not None and not scan_to_check:
+            try:
+                p_im = Image.open(photo_mag)
+                scan_to_check = decode_barcode_from_image(p_im) or ""
+            except Exception:
+                pass
+
+        if scan_to_check:
+            st.markdown("---")
+            st.markdown(f"#### Analyse de : **`{scan_to_check}`**")
+
+            # Recherche dans la base
+            m_exact = sorted_df[col_barcode].astype(str).str.strip().str.lower() == scan_to_check.lower()
+            if not m_exact.any():
+                m_exact = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(scan_to_check.lower()), na=False)
+
+            found_idx = sorted_df.index[m_exact].tolist()
+
+            if found_idx:
+                matched_rows = sorted_df.iloc[found_idx]
+                has_4k = (matched_rows['4K'] == 'OUI').any()
+                has_br = (matched_rows['BLURAY'] == 'OUI').any()
+                has_sb = (matched_rows['STEELBOOK'] == 'OUI').any()
+                is_only_dvd = (matched_rows['DVD'] == 'OUI').all() and not (has_4k or has_br)
+
+                premier_film = matched_rows.iloc[0]
+                _, _, _, _, addr_txt = get_rack_info(found_idx[0])
+
+                if has_4k or has_br or has_sb:
+                    st.error(f"⛔ **DÉJÀ POSSÉDÉ EN HAUTE DÉFINITION ! (NE PAS ACHETER)**")
+                    st.markdown(f"Le film **{premier_film[col_titre_fr]}** est déjà présent dans votre collection.")
+                    st.markdown(f"**💿 Formats en stock :** `{premier_film.get('supports', 'N/A')}`")
+                    st.markdown(f"**🏢 Emplacement actuel :** `{addr_txt}` (Boîtier `#{premier_film.get('ID MyMovie', 'N/A')}`)")
+                elif is_only_dvd:
+                    st.warning(f"💡 **OPPORTUNITÉ D'UPGRADE ! (POSSÉDÉ EN DVD UNIQUEMENT)**")
+                    st.markdown(f"Vous possédez déjà **{premier_film[col_titre_fr]}**, mais **uniquement en format DVD standard**.")
+                    st.markdown("Si le boîtier que vous avez entre les mains est une édition **Blu-ray** ou **4K UHD**, **ACHAT RECOMMANDÉ** pour monter en gamme !")
+                    st.markdown(f"**🏢 Emplacement du DVD actuel :** `{addr_txt}`")
+                else:
+                    st.info(f"ℹ️ **DÉJÀ RÉPERTORIÉ DANS LA COLLECTION** : Formats `{premier_film.get('supports', 'N/A')}`.")
+            else:
+                st.success(f"✅ **FILM ABSENT DE LA COLLECTION (ACHAT VALIDÉ)**")
+                st.markdown(f"Aucune correspondance trouvée pour **`{scan_to_check}`**. Ce film n'est pas encore sur vos étagères !")
+
+    with tab_wishlist:
+        st.subheader("Wishlist / Liste des Films Convoités")
+        st.caption("Gardez en mémoire les titres que vous cherchez lors de vos sorties en brocante ou en magasin.")
+
+        w_col1, w_col2, w_col3 = st.columns([3, 2, 2])
+        with w_col1:
+            w_titre = st.text_input("Titre recherché :", key="wish_titre", placeholder="Ex: Oppenheimer")
+        with w_col2:
+            w_format = st.selectbox("Format souhaité :", ["4K Ultra HD", "Steelbook", "Blu-ray", "Peu importe"], key="wish_format")
+        with w_col3:
+            w_priorite = st.selectbox("Priorité :", ["⭐⭐⭐ Haute", "⭐⭐ Moyenne", "⭐ Basse"], key="wish_prio")
+
+        if 'wishlist_data' not in st.session_state:
+            st.session_state['wishlist_data'] = [
+                {"Titre": "Oppenheimer", "Format Visé": "4K Ultra HD", "Priorité": "⭐⭐⭐ Haute", "Note": "Édition Steelbook si possible"},
+                {"Titre": "Killers of the Flower Moon", "Format Visé": "4K Ultra HD", "Priorité": "⭐⭐ Moyenne", "Note": "Attendre promo"},
+                {"Titre": "Civil War", "Format Visé": "4K Ultra HD", "Priorité": "⭐⭐ Moyenne", "Note": "Sortie récente"}
+            ]
+
+        if st.button("➕ Ajouter à ma Wishlist", key="btn_add_wish"):
+            if w_titre.strip():
+                st.session_state['wishlist_data'].append({
+                    "Titre": w_titre.strip(),
+                    "Format Visé": w_format,
+                    "Priorité": w_priorite,
+                    "Note": ""
+                })
+                st.success(f"« {w_titre} » ajouté à votre Wishlist !")
+
+        w_df = pd.DataFrame(st.session_state['wishlist_data'])
+        st.dataframe(w_df, use_container_width=True, hide_index=True)
+
+
+# ==============================================================================
+# FONCTION 6 : AUDIT QUALITÉ : DOUBLONS RÉELS & OPPORTUNITÉS D'UPGRADES 4K
+# ==============================================================================
+elif menu == "6° Audit Qualité : Doublons réels & Opportunités d'Upgrades 4K":
+    st.title("🔍 Audit Qualité : Doublons Réels & Opportunités d'Upgrades 4K")
+    st.markdown("Audit industriel de votre catalogue : repérage des doublons physiques, matrice de conversion des DVD vers la haute définition 4K UHD, et contrôle des fiches incomplètes.")
+
+    tab_upg, tab_dups, tab_incomplet = st.tabs([
+        "💎 Opportunités d'Upgrade (DVD ➔ 4K / Blu-ray)",
+        "👥 Détection des Doublons Réels",
+        "⚠️ Fiches à Compléter"
+    ])
+
+    with tab_upg:
+        st.subheader("Panthéon des DVD à Upgrader en 4K / Blu-ray")
+        st.markdown("Ces films sont actuellement possédés **uniquement en simple définition DVD**. Ils sont classés par note IMDb pour cibler en priorité les chefs-d'œuvre mondiaux méritant une édition 4K.")
+
+        is_dvd_seul = (df['DVD'] == 'OUI') & (df['BLURAY'] != 'OUI') & (df['4K'] != 'OUI')
+        dvd_seul_df = df[is_dvd_seul].copy()
+
+        dvd_seul_df['rating_num'] = pd.to_numeric(dvd_seul_df['rating_imdb'].astype(str).str.replace(',', '.'), errors='coerce')
+        top_upg_df = dvd_seul_df.sort_values(by='rating_num', ascending=False)
+
+        c_u1, c_u2 = st.columns(2)
+        with c_u1:
+            st.metric("Total DVD seuls sans version HD", f"{len(dvd_seul_df):,}".replace(',', ' '))
+        with c_u2:
+            st.metric("Chefs-d'œuvre majeurs (IMDb ≥ 8.0)", f"{(dvd_seul_df['rating_num'] >= 8.0).sum()} titres")
+
+        min_note = st.slider("Note IMDb minimale pour la liste d'upgrade :", 5.0, 9.5, 7.5, 0.1)
+        filtered_upg = top_upg_df[top_upg_df['rating_num'] >= min_note]
+
+        cols_upg_view = [c for c in ['ID MyMovie', 'ID Unique', col_titre_fr, 'annee', 'rating_imdb', col_director, 'Production_Corp', 'Lien IMDb'] if c in filtered_upg.columns]
+        st.dataframe(filtered_upg[cols_upg_view], use_container_width=True, hide_index=True)
+
+    with tab_dups:
+        st.subheader("Titres Multiples / Doublons dans la Collection")
+        st.markdown("Films dont le titre apparaît sur plusieurs lignes de la base (ex: édition simple + réédition coffret ou multiples formats) :")
+
+        counts = df[col_titre_fr].str.strip().str.lower().value_counts()
+        mult_titles = counts[counts > 1].index.tolist()
+
+        dups_df = df[df[col_titre_fr].str.strip().str.lower().isin(mult_titles)].sort_values(by=col_titre_fr)
+
+        st.metric("Films avec plusieurs entrées", f"{len(mult_titles)} titres distincts", f"{len(dups_df)} lignes au total")
+
+        cols_dup_view = [c for c in ['ID MyMovie', 'ID Unique', col_titre_fr, 'annee', 'supports', 'date_ajout', 'Production_Corp'] if c in dups_df.columns]
+        st.dataframe(dups_df[cols_dup_view], use_container_width=True, hide_index=True)
+
+    with tab_incomplet:
+        st.subheader("Audit des Données Incomplètes")
+        c_i1, c_i2, c_i3 = st.columns(3)
+        sans_cb_count = df[col_barcode].astype(str).str.contains('SANS_CB', na=False).sum()
+        sans_duree = df['duree_minutes'].isna().sum() if 'duree_minutes' in df.columns else 0
+        sans_note = df['rating_imdb'].isna().sum() if 'rating_imdb' in df.columns else 0
+
+        c_i1.metric("Boîtiers sans code-barres EAN", f"{sans_cb_count}")
+        c_i2.metric("Films sans Durée renseignée", f"{sans_duree}")
+        c_i3.metric("Films sans Note IMDb", f"{sans_note}")
+
+        if sans_cb_count > 0:
+            with st.expander("Voir les boîtiers sans code-barres (SANS_CB_...)") :
+                st.dataframe(df[df[col_barcode].astype(str).str.contains('SANS_CB', na=False)][['ID MyMovie', 'ID Unique', col_titre_fr, col_barcode]], hide_index=True, use_container_width=True)
+
+
+# ==============================================================================
+# FONCTION 7 : SAGATHÈQUE & DOSSIER D'ASSURANCE CERTIFIÉ
+# ==============================================================================
+elif menu == "7° Sagathèque & Dossier d'Assurance Certifié":
+    st.title("🏛️ Sagathèque & Dossier d'Assurance Certifié")
+    st.markdown("Valorisation patrimoniale et protection juridique de votre collection physique de **4 301 boîtiers**.")
+
+    tab_assur, tab_sagas = st.tabs([
+        "🛡️ Dossier d'Assurance (Capital & Sinistre)",
+        "🎬 Sagathèque (Grandes Franchises Cinéma)"
+    ])
+
+    with tab_assur:
+        st.subheader("Valorisation Financière du Patrimoine Physique")
+        st.markdown("Estimation certifiée de la valeur de remplacement à neuf de votre vidéothèque en cas de sinistre (vol, incendie, dégât des eaux) :")
+
+        nb_4k = (df['4K'] == 'OUI').sum()
+        nb_sb = (df['STEELBOOK'] == 'OUI').sum()
+        nb_br = (df['BLURAY'] == 'OUI').sum()
+        nb_dvd = (df['DVD'] == 'OUI').sum()
+        nb_box = (df['COFFRET'] == 'OUI').sum()
+        nb_3d = (df['3D'] == 'OUI').sum()
+
+        st.markdown("##### ⚙️ Barème de Remplacement Unitaire Moyen (€) :")
+        p_c1, p_c2, p_c3, p_c4, p_c5 = st.columns(5)
+        with p_c1:
+            pu_4k = st.number_input("Prix 4K UHD (€) :", value=25, min_value=5, max_value=60)
+        with p_c2:
+            pu_sb = st.number_input("Prix Steelbook (€) :", value=30, min_value=5, max_value=80)
+        with p_c3:
+            pu_br = st.number_input("Prix Blu-ray (€) :", value=15, min_value=2, max_value=40)
+        with p_c4:
+            pu_dvd = st.number_input("Prix DVD (€) :", value=8, min_value=1, max_value=25)
+        with p_c5:
+            pu_box = st.number_input("Prix Coffret (€) :", value=45, min_value=10, max_value=150)
+
+        tot_val = (nb_4k * pu_4k) + (nb_sb * pu_sb) + (nb_br * pu_br) + (nb_dvd * pu_dvd) + (nb_box * pu_box)
+
+        st.markdown("---")
+        st.metric("💰 VALEUR DE REMPLACEMENT TOTALE ESTIMÉE", f"{tot_val:,.2f} €".replace(',', ' '))
+
+        # Tableau récapitulatif officiel
+        bilan_assur_df = pd.DataFrame([
+            {"Catégorie de Support": "Éditions 4K Ultra HD", "Nombre de Disques": nb_4k, "Valeur Unitaire": f"{pu_4k} €", "Sous-Total Estimé": f"{nb_4k * pu_4k:,.2f} €".replace(',', ' ')},
+            {"Catégorie de Support": "Boîtiers Métal Steelbook", "Nombre de Disques": nb_sb, "Valeur Unitaire": f"{pu_sb} €", "Sous-Total Estimé": f"{nb_sb * pu_sb:,.2f} €".replace(',', ' ')},
+            {"Catégorie de Support": "Disques Blu-ray Standard", "Nombre de Disques": nb_br, "Valeur Unitaire": f"{pu_br} €", "Sous-Total Estimé": f"{nb_br * pu_br:,.2f} €".replace(',', ' ')},
+            {"Catégorie de Support": "Disques DVD Standard", "Nombre de Disques": nb_dvd, "Valeur Unitaire": f"{pu_dvd} €", "Sous-Total Estimé": f"{nb_dvd * pu_dvd:,.2f} €".replace(',', ' ')},
+            {"Catégorie de Support": "Coffrets Intégrales & Séries", "Nombre de Boîtiers": nb_box, "Valeur Unitaire": f"{pu_box} €", "Sous-Total Estimé": f"{nb_box * pu_box:,.2f} €".replace(',', ' ')}
+        ])
+        st.dataframe(bilan_assur_df, use_container_width=True, hide_index=True)
+
+        csv_assur = bilan_assur_df.to_csv(sep=';', index=False).encode('utf-8-sig')
+        st.download_button(
+            "📥 Télécharger l'Attestation d'Inventaire pour Assurance (CSV)",
+            data=csv_assur,
+            file_name="Attestation_Inventaire_Assurance_Videotheque.csv",
+            mime="text/csv"
+        )
+
+    with tab_sagas:
+        st.subheader("La Sagathèque (Suites & Grandes Franchises)")
+        st.markdown("Regroupement automatique des univers cinématographiques avec ordre chronologique de visionnage :")
+
+        sagas_dict = {
+            "Marvel Cinematic Universe": ["avengers", "iron man", "captain america", "thor", "guardians of the galaxy", "gardiens de la galaxie", "spider-man", "black panther"],
+            "Star Wars": ["star wars", "l'empire contre-attaque", "le retour du jedi", "la menace fantôme"],
+            "Le Seigneur des Anneaux & Le Hobbit": ["seigneur des anneaux", "hobbit", "communauté de l'anneau", "les deux tours", "retour du roi"],
+            "Alien & Predator": ["alien", "predator", "prométhée", "prometheus"],
+            "Rocky & Creed": ["rocky", "creed"],
+            "James Bond (007)": ["james bond", "007", "dr no", "goldfinger", "spectre", "skyfall", "casino royale"],
+            "Batman & The Dark Knight": ["batman", "dark knight", "chevalier noir"],
+            "Harry Potter & Animaux Fantastiques": ["harry potter", "animaux fantastiques"],
+            "Indiana Jones": ["indiana jones"],
+            "Terminator": ["terminator"],
+            "Mission: Impossible": ["mission: impossible", "mission impossible"],
+            "Fast & Furious": ["fast & furious", "fast and furious"]
+        }
+
+        sel_saga = st.selectbox("Sélectionnez la Saga à explorer :", list(sagas_dict.keys()), index=0)
+        kw_list = sagas_dict[sel_saga]
+        pat_saga = "|".join(kw_list)
+
+        m_saga = df[col_titre_fr].str.contains(pat_saga, case=False, na=False)
+        saga_movies = df[m_saga].copy()
+
+        st.success(f"🎬 **{len(saga_movies)} films** répertoriés dans la franchise **{sel_saga}**.")
+
+        # Tri chronologique par année
+        if 'annee_num' in saga_movies.columns:
+            saga_movies = saga_movies.sort_values(by='annee_num', ascending=True)
+
+        cols_saga_vw = [c for c in ['ID MyMovie', 'ID Unique', col_titre_fr, 'annee', 'duree_minutes', 'rating_imdb', 'supports', 'Production_Corp', 'Lien IMDb'] if c in saga_movies.columns]
+        st.dataframe(saga_movies[cols_saga_vw], use_container_width=True, hide_index=True)
+
+
+# ==============================================================================
+# FONCTION 8 : RECHERCHE PAR TITRE / RÉALISATEUR / ACTEUR & IMDB
+# ==============================================================================
+elif menu == "8° Recherche par titre / réalisateur / acteur & IMDb":
     st.title("🔍 Recherche par Titre, Réalisateur, Acteur, Année, Studio, ou ID")
     st.markdown("Recherche multi-critères instantanée : titres, **Année**, **ID MyMovie**, **ID Unique**, réalisateurs, casting et studios.")
 
@@ -1091,17 +1528,15 @@ elif menu == "4° Recherche par titre / réalisateur / acteur & IMDb":
 
         if not res_df.empty:
             st.success(f"✨ **{len(res_df)}** film(s) correspondant(s) trouvé(s) pour « {query} » :")
-            render_custom_table(res_df, key_id="f3_title_match")
+            render_custom_table(res_df, key_id="f8_title_match")
         else:
             st.warning(f"Aucun film trouvé contenant « {query} ».")
             st.markdown("### Inventaire complet :")
-            render_custom_table(df, key_id="f3_title_fallback")
+            render_custom_table(df, key_id="f8_title_fallback")
     else:
         st.markdown("### Inventaire complet :")
-        render_custom_table(df, key_id="f3_title_default")
+        render_custom_table(df, key_id="f8_title_default")
 
-
-# ==============================================================================
 # FONCTION 4 : STATISTIQUES COMPLÈTES DE LA COLLECTION
 # ==============================================================================
 else:
