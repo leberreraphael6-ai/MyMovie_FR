@@ -3,6 +3,208 @@ import pandas as pd
 import io
 import os
 import math
+
+# ==============================================================================
+# MOTEURS OPTIQUES & CALCULATEURS INDUSTRIELS (RACK & SCAN)
+# ==============================================================================
+# Importations tolérantes aux pannes (OpenCV & NumPy optionnels)
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+def decode_barcode_robust(pil_img):
+    """
+    Décodeur optique multi-moteurs ultra-tolérant :
+    - Fonctionne même si OpenCV ou pyzbar ne sont pas encore installés sur la machine
+    - Tente pyzbar directement sur l'image PIL
+    - Tente OpenCV si installé
+    - Tente zxingcpp si installé
+    """
+    if pil_img is None:
+        return ""
+
+    # 1. Tentative pyzbar native directe sur l'image PIL (ne nécessite pas OpenCV)
+    try:
+        from pyzbar.pyzbar import decode as pyzbar_decode
+        results = pyzbar_decode(pil_img)
+        for r in results:
+            val = r.data.decode('utf-8', errors='ignore').strip()
+            if val and len(val) >= 6:
+                return val
+    except Exception:
+        pass
+
+    # 2. Tentative via OpenCV (si installé)
+    if cv2 is not None and np is not None:
+        try:
+            img_np = np.array(pil_img)
+            if img_np.ndim == 2:
+                gray = img_np
+                bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            elif img_np.shape[2] == 4:
+                bgr = cv2.cvtColor(img_np, cv2.COLOR_RGBA2BGR)
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+            else:
+                bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+            h, w = gray.shape[:2]
+            if max(h, w) > 1600:
+                scale = 1600.0 / max(h, w)
+                gray = cv2.resize(gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                bgr = cv2.resize(bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+            # Test BarcodeDetector natif OpenCV
+            if hasattr(cv2, 'barcode') and hasattr(cv2.barcode, 'BarcodeDetector'):
+                detector = cv2.barcode.BarcodeDetector()
+                clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+                gray_clahe = clahe.apply(gray)
+                
+                variants = [
+                    gray,
+                    gray_clahe,
+                    cv2.threshold(gray_clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                ]
+                for v in variants:
+                    for rot in [0, 90, 180, 270]:
+                        r_v = np.rot90(v, rot // 90) if rot > 0 else v
+                        ok, decoded_info, decoded_type, _ = detector.detectAndDecode(r_v)
+                        if ok:
+                            for t in decoded_info:
+                                t_clean = str(t).strip()
+                                if t_clean and len(t_clean) >= 6:
+                                    return t_clean
+        except Exception:
+            pass
+
+    # 3. Tentative zxingcpp si installé
+    try:
+        import zxingcpp
+        results = zxingcpp.read_barcodes(pil_img)
+        for r in results:
+            val = str(r.text).strip()
+            if val and len(val) >= 6:
+                return val
+    except Exception:
+        pass
+
+    return ""
+    """
+    Décodeur optique multi-moteurs ultra-performant :
+    - Étape 1 : Normalisation, conversion BGR/Gris, redimensionnement adaptatif
+    - Étape 2 : Moteur pyzbar (si disponible) sur 4 rotations (0, 90, 180, 270)
+    - Étape 3 : Moteur OpenCV BarcodeDetector avec rehaussement de contraste CLAHE et binarisation Otsu
+    - Étape 4 : Moteur zxing-cpp (si disponible)
+    """
+    if pil_img is None:
+        return ""
+    try:
+        # Conversion PIL -> NumPy / OpenCV
+        img_np = np.array(pil_img)
+        if img_np.ndim == 2:
+            gray = img_np
+            bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        elif img_np.shape[2] == 4:
+            bgr = cv2.cvtColor(img_np, cv2.COLOR_RGBA2BGR)
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        else:
+            bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+        # Redimensionnement adaptatif pour optimiser vitesse et détection
+        h, w = gray.shape[:2]
+        if max(h, w) > 1600:
+            scale = 1600.0 / max(h, w)
+            gray = cv2.resize(gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            bgr = cv2.resize(bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        # 1. Tentative pyzbar (moteur référence)
+        try:
+            from pyzbar.pyzbar import decode as pyzbar_decode
+            for rot in [0, 90, 180, 270]:
+                r_gray = np.rot90(gray, rot // 90) if rot > 0 else gray
+                results = pyzbar_decode(r_gray)
+                for r in results:
+                    val = r.data.decode('utf-8', errors='ignore').strip()
+                    if val and len(val) >= 6:
+                        return val
+        except Exception:
+            pass
+
+        # 2. Tentative OpenCV BarcodeDetector natif
+        try:
+            if hasattr(cv2, 'barcode') and hasattr(cv2.barcode, 'BarcodeDetector'):
+                detector = cv2.barcode.BarcodeDetector()
+                clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+                gray_clahe = clahe.apply(gray)
+                
+                # Variantes d'images : brute, rehaussée CLAHE, et binarisée Otsu
+                variants = [
+                    gray,
+                    gray_clahe,
+                    cv2.threshold(gray_clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                ]
+                for v in variants:
+                    for rot in [0, 90, 180, 270]:
+                        r_v = np.rot90(v, rot // 90) if rot > 0 else v
+                        ok, decoded_info, decoded_type, _ = detector.detectAndDecode(r_v)
+                        if ok:
+                            for t in decoded_info:
+                                t_clean = str(t).strip()
+                                if t_clean and len(t_clean) >= 6:
+                                    return t_clean
+        except Exception:
+            pass
+
+        # 3. Tentative zxingcpp si installé
+        try:
+            import zxingcpp
+            for rot in [0, 90, 180, 270]:
+                r_bgr = np.rot90(bgr, rot // 90) if rot > 0 else bgr
+                results = zxingcpp.read_barcodes(r_bgr)
+                for r in results:
+                    val = str(r.text).strip()
+                    if val and len(val) >= 6:
+                        return val
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+    return ""
+
+
+def get_rack_info(alpha_idx, total_count=None, nb_racks=None, nb_etageres=None, capa_override=None):
+    """
+    Calcule l'adresse industrielle normalisée [RACK - ÉTAGÈRE - EMPLACEMENT] selon le rang alphabétique.
+    Gère la capacité dynamique et la marge d'expansion.
+    """
+    if total_count is None:
+        total_count = len(df)
+    if nb_racks is None:
+        nb_racks = getattr(st.session_state, 'cfg_nb_racks', 12)
+    if nb_etageres is None:
+        nb_etageres = getattr(st.session_state, 'cfg_nb_etageres', 10)
+    
+    if capa_override is not None and capa_override > 0:
+        capa = capa_override
+    else:
+        tot_shelves = max(1, nb_racks * nb_etageres)
+        capa = math.ceil(total_count / tot_shelves)
+
+    rack = (alpha_idx // (nb_etageres * capa)) + 1
+    sub = alpha_idx % (nb_etageres * capa)
+    etagere = (sub // capa) + 1
+    empl = (sub % capa) + 1
+    addr_str = f"RACK {rack:02d} | ÉTAGÈRE {etagere:02d} | EMPL {empl:03d}"
+    return rack, etagere, empl, capa, addr_str
+
 import re
 import urllib.parse
 from PIL import Image
@@ -329,14 +531,33 @@ menu = st.sidebar.radio("Sélectionnez la fonction :", [
     "9° Statistiques complètes de la collection"
 ])
 
-# Paramétrage logistique RACK dans la barre latérale
+# Paramétrage logistique RACK dans la barre latérale (Étendu & Haute Capacité)
 st.sidebar.markdown("---")
-st.sidebar.subheader("🏢 Topologie de Stockage RACK")
-nb_racks_cfg = st.sidebar.slider("Nombre de Racks (Meubles) :", min_value=1, max_value=20, value=8, key="cfg_nb_racks")
-nb_etageres_cfg = st.sidebar.slider("Étagères par Rack :", min_value=1, max_value=12, value=7, key="cfg_nb_etageres")
-capa_calc_etagere = math.ceil(len(df) / (nb_racks_cfg * nb_etageres_cfg))
-st.sidebar.caption(f"Capacité requise : ~**{capa_calc_etagere}** boîtiers / étagère")
-st.sidebar.caption(f"Magasin total : **{nb_racks_cfg} Racks** x **{nb_etageres_cfg} Étagères** = **{nb_racks_cfg * nb_etageres_cfg} tablettes**")
+st.sidebar.subheader("🏢 Topologie de Stockage RACK (Magasin)")
+
+mode_config = st.sidebar.radio(
+    "Mode de calibrage :",
+    ["Par Nombre d'Étagères", "Par Capacité Réelle par Étagère"],
+    index=0,
+    key="cfg_mode_rack"
+)
+
+if mode_config == "Par Nombre d'Étagères":
+    nb_racks_cfg = st.sidebar.slider("Nombre de Racks (Meubles / Colonnes) :", min_value=1, max_value=50, value=12, key="cfg_nb_racks")
+    nb_etageres_cfg = st.sidebar.slider("Nombre d'Étagères par Meuble :", min_value=1, max_value=30, value=10, key="cfg_nb_etageres")
+    total_etageres_magasin = nb_racks_cfg * nb_etageres_cfg
+    capa_calc_etagere = math.ceil(len(df) / total_etageres_magasin) if total_etageres_magasin > 0 else 1
+    st.sidebar.info(f"📐 **{total_etageres_magasin} étagères** au total\n\n📦 Capacité requise : **{capa_calc_etagere} boîtiers / étagère**")
+else:
+    capa_voulue = st.sidebar.slider("Capacité max d'une étagère (boîtiers) :", min_value=20, max_value=120, value=45, step=5, key="cfg_capa_voulue")
+    reserve_pct = st.sidebar.slider("Marge de réserve (places libres pour futurs achats) :", min_value=0, max_value=40, value=15, step=5, format="%d%%", key="cfg_reserve")
+    eff_capa = max(1, math.floor(capa_voulue * (1 - reserve_pct / 100)))
+    etageres_requises = math.ceil(len(df) / eff_capa)
+    nb_etageres_cfg = st.sidebar.slider("Étagères par Meuble :", min_value=1, max_value=30, value=8, key="cfg_nb_etageres")
+    nb_racks_cfg = math.ceil(etageres_requises / nb_etageres_cfg)
+    total_etageres_magasin = nb_racks_cfg * nb_etageres_cfg
+    capa_calc_etagere = capa_voulue
+    st.sidebar.success(f"🎯 Configuration optimale :\n\n- **{nb_racks_cfg} Racks** de **{nb_etageres_cfg} étagères**\n- **{total_etageres_magasin} étagères** ({etageres_requises} utilisées, {total_etageres_magasin - etageres_requises} en réserve)")
 
 # Détection unifiée des colonnes
 col_titre_fr = next((c for c in df.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais', 'titre_vf']), None)
@@ -925,6 +1146,8 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
     img_input = None
     with cam_tab1:
         st.caption("Cadrez bien le code-barres au centre de l'écran, évitez les reflets du plastique de la jaquette.")
+        if cv2 is None:
+            st.info("💡 **Conseil d'activation scan caméra :** Pour bénéficier de la reconnaissance optique avancée sur votre PC, vous pouvez installer la bibliothèque requise via votre invite de commande : `pip install opencv-python pyzbar` (la saisie manuelle et douchette USB fonctionnent déjà à 100%).")
         camera_pic = st.camera_input("Prendre la photo du code-barres :", key="cam_barcode_input")
         if camera_pic is not None:
             img_input = camera_pic
@@ -940,7 +1163,7 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
         try:
             pil_image = Image.open(img_input)
             with st.spinner("🔍 Analyse optique et décodage du code-barres en cours..."):
-                detected_code = decode_barcode_from_image(pil_image)
+                detected_code = decode_barcode_robust(pil_image)
         except Exception as e:
             st.error(f"Erreur de lecture de l'image : {e}")
 
@@ -967,7 +1190,25 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
         clean_cb = re.sub(r'^\][a-zA-Z0-9]{2}', '', clean_cb).strip()
         clean_cb = re.sub(r'\s+', '', clean_cb)
 
+        # 1. Correspondance exacte
         mask_match = series_b.str.lower() == clean_cb.lower()
+
+        # 2. Correspondance numérique souple (zéros non significatifs et zfill 13)
+        if not mask_match.any() and clean_cb.isdigit():
+            norm_digits = clean_cb.lstrip('0')
+            series_digits = series_b.str.lstrip('0')
+            mask_match = (series_digits == norm_digits) & (series_digits != '')
+            if not mask_match.any():
+                z13 = clean_cb.zfill(13)
+                mask_match = series_b.str.zfill(13) == z13
+
+        # 3. Correspondance par terminaison (ex: 4 à 8 derniers chiffres saisis)
+        if not mask_match.any() and clean_cb.isdigit() and len(clean_cb) >= 4:
+            mask_match = series_b.str.endswith(clean_cb)
+
+        # 4. Sous-chaîne de code-barres
+        if not mask_match.any() and len(clean_cb) >= 4:
+            mask_match = series_b.str.contains(re.escape(clean_cb), case=False, na=False)
 
         if not mask_match.any() and clean_cb.isdigit():
             norm_digits = clean_cb.lstrip('0')
@@ -1102,7 +1343,7 @@ elif menu == "4° Cartographie RACK & Stockage Industriel (WMS)":
 
     total_films = len(sorted_df)
     total_tablettes = nb_racks_cfg * nb_etageres_cfg
-    capa_par_etagere = math.ceil(total_films / total_tablettes) if total_tablettes > 0 else 1
+    capa_par_etagere = capa_calc_etagere if "capa_calc_etagere" in locals() and capa_calc_etagere > 0 else (math.ceil(total_films / total_tablettes) if total_tablettes > 0 else 1)
     capacite_theorique = total_tablettes * capa_par_etagere
     taux_occupation = (total_films / capacite_theorique * 100) if capacite_theorique > 0 else 100.0
 
@@ -1273,7 +1514,7 @@ elif menu == "5° Scanner Anti-Doublon Mobile & Wishlist Magasin":
         if photo_mag is not None and not scan_to_check:
             try:
                 p_im = Image.open(photo_mag)
-                scan_to_check = decode_barcode_from_image(p_im) or ""
+                scan_to_check = decode_barcode_robust(p_im) or ""
             except Exception:
                 pass
 
@@ -1281,10 +1522,16 @@ elif menu == "5° Scanner Anti-Doublon Mobile & Wishlist Magasin":
             st.markdown("---")
             st.markdown(f"#### Analyse de : **`{scan_to_check}`**")
 
-            # Recherche dans la base
-            m_exact = sorted_df[col_barcode].astype(str).str.strip().str.lower() == scan_to_check.lower()
+            # Recherche intelligente (exacte, zfill 13, derniers chiffres ou titre)
+            clean_s = scan_to_check.strip()
+            s_barcode = sorted_df[col_barcode].astype(str).str.strip()
+            m_exact = s_barcode.str.lower() == clean_s.lower()
+            if not m_exact.any() and clean_s.isdigit():
+                m_exact = (s_barcode.str.lstrip('0') == clean_s.lstrip('0')) | (s_barcode.str.zfill(13) == clean_s.zfill(13))
+                if not m_exact.any() and len(clean_s) >= 4:
+                    m_exact = s_barcode.str.endswith(clean_s)
             if not m_exact.any():
-                m_exact = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(scan_to_check.lower()), na=False)
+                m_exact = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(clean_s.lower()), na=False)
 
             found_idx = sorted_df.index[m_exact].tolist()
 
