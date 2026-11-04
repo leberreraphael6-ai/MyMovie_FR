@@ -219,11 +219,301 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="Gestionnaire d'Inventaire Films & IMDb",
+    page_title="⚡ TDBI Filmotheque v5.0 Ultra // Système Tactique",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==============================================================================
+# DESIGN SYSTEM CYBER-WMS V5.0 : MODERNE, FUTURISTE, FUN & DYNAMIQUE
+# ==============================================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+/* --- FOND CYBERNETIQUE PROFOND AVEC GRILLE SPATIALE --- */
+.stApp {
+    background-color: #070a13 !important;
+    background-image: 
+        radial-gradient(at 0% 0%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(147, 51, 234, 0.15) 0px, transparent 50%),
+        linear-gradient(rgba(14, 165, 233, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(14, 165, 233, 0.03) 1px, transparent 1px) !important;
+    background-size: 100% 100%, 100% 100%, 35px 35px, 35px 35px !important;
+    color: #e2e8f0 !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* --- BANDEAU HUD HOLOGRAPHIQUE PRINCIPAL --- */
+.cyber-hud-banner {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.75) 100%);
+    border: 1px solid rgba(0, 242, 254, 0.4);
+    border-radius: 14px;
+    padding: 18px 26px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 35px rgba(0, 242, 254, 0.15), inset 0 0 15px rgba(0, 242, 254, 0.05);
+    backdrop-filter: blur(14px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.cyber-hud-banner::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00f2fe, #a855f7, transparent);
+    animation: hud_laser_sweep 4s linear infinite;
+}
+
+@keyframes hud_laser_sweep {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+.cyber-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.55rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 40%, #c084fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.cyber-hud-status {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.cyber-badge-online {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid #10b981;
+    color: #34d399;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+.cyber-badge-version {
+    background: rgba(0, 242, 254, 0.15);
+    border: 1px solid #00f2fe;
+    color: #00f2fe;
+    padding: 5px 16px;
+    border-radius: 20px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.78rem;
+    letter-spacing: 1.2px;
+    font-weight: 800;
+    text-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+    animation: cyber_pulse 2.5s infinite;
+}
+
+@keyframes cyber_pulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.3); }
+    50% { box-shadow: 0 0 22px rgba(0, 242, 254, 0.7); }
+}
+
+/* --- CARTES METRIQUES HOLOGRAPHIQUES --- */
+div[data-testid="stMetric"] {
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(56, 189, 248, 0.3) !important;
+    border-radius: 12px !important;
+    padding: 16px 20px !important;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35) !important;
+    backdrop-filter: blur(10px) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    position: relative;
+    overflow: hidden;
+}
+
+div[data-testid="stMetric"]:hover {
+    border-color: #00f2fe !important;
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.4) !important;
+    transform: translateY(-4px) scale(1.01) !important;
+}
+
+div[data-testid="stMetricLabel"] {
+    font-family: 'Rajdhani', sans-serif !important;
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    color: #94a3b8 !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+}
+
+div[data-testid="stMetricValue"] {
+    font-family: 'Orbitron', sans-serif !important;
+    color: #f8fafc !important;
+    font-size: 1.85rem !important;
+    font-weight: 800 !important;
+    text-shadow: 0 0 15px rgba(56, 189, 248, 0.5) !important;
+}
+
+/* --- ANIMATION SCANNER LASER SUR LA RECHERCHE & SCAN --- */
+.laser-scanner-box {
+    position: relative;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(0, 242, 254, 0.4);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 15px 0;
+    box-shadow: 0 8px 30px rgba(0, 242, 254, 0.15);
+    overflow: hidden;
+}
+
+.laser-beam {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #00f2fe, #f43f5e, #00f2fe, transparent);
+    box-shadow: 0 0 15px #00f2fe, 0 0 25px #f43f5e;
+    animation: laser_sweep 2.2s ease-in-out infinite alternate;
+}
+
+@keyframes laser_sweep {
+    0% { top: 0%; opacity: 0.4; }
+    50% { opacity: 1; }
+    100% { top: 96%; opacity: 0.4; }
+}
+
+/* --- FICHE FILM HOLOGRAPHIQUE (HUD CARD 360°) --- */
+.hologram-film-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%);
+    border: 1px solid rgba(0, 242, 254, 0.35);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin: 15px 0;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 242, 254, 0.05);
+}
+
+.wms-address-badge {
+    background: linear-gradient(90deg, rgba(2, 132, 199, 0.3), rgba(147, 51, 234, 0.25));
+    border: 1px solid #38bdf8;
+    color: #e0f2fe;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    display: inline-block;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.35);
+    margin-bottom: 12px;
+}
+
+/* --- BADGES SUPPORTS HOLOGRAPHIQUES --- */
+.badge-4k {
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.35), rgba(192, 132, 252, 0.15));
+    border: 1px solid #c084fc;
+    color: #e9d5ff;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    box-shadow: 0 0 10px rgba(192, 132, 252, 0.4);
+}
+
+.badge-sb {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(251, 191, 36, 0.15));
+    border: 1px solid #fbbf24;
+    color: #fef3c7;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+}
+
+.badge-br {
+    background: linear-gradient(135deg, rgba(2, 132, 199, 0.35), rgba(56, 189, 248, 0.15));
+    border: 1px solid #38bdf8;
+    color: #e0f2fe;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+/* --- BOUTONS CYBER LASER --- */
+.stButton > button {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+    color: #ffffff !important;
+    font-family: 'Rajdhani', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 1.1rem !important;
+    letter-spacing: 1.2px !important;
+    border: 1px solid rgba(56, 189, 248, 0.5) !important;
+    border-radius: 8px !important;
+    padding: 9px 24px !important;
+    box-shadow: 0 4px 18px rgba(2, 132, 199, 0.35) !important;
+    transition: all 0.25s ease-in-out !important;
+}
+
+.stButton > button:hover {
+    background: linear-gradient(135deg, #00f2fe 0%, #0284c7 100%) !important;
+    border-color: #00f2fe !important;
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.6) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* --- BARRE LATERALE --- */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0a0f1d 0%, #060913 100%) !important;
+    border-right: 1px solid rgba(56, 189, 248, 0.2) !important;
+}
+
+/* --- TITRES --- */
+h1 {
+    font-family: 'Orbitron', sans-serif !important;
+    background: linear-gradient(90deg, #00f2fe, #38bdf8, #818cf8) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    letter-spacing: 1.5px !important;
+}
+
+h2, h3 {
+    font-family: 'Rajdhani', sans-serif !important;
+    color: #38bdf8 !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+}
+</style>
+
+<div class="cyber-hud-banner">
+    <div>
+        <div class="cyber-title">⚡ TDBI CINÉ // SYSTÈME DE SUPERVISION</div>
+        <div style="font-family: Rajdhani, sans-serif; color: #94a3b8; font-size: 0.95rem; letter-spacing: 1px; margin-top: 4px;">
+            GESTION FILMOTHEQUE | INVENTAIRE | SCAN & RACKING
+        </div>
+    </div>
+    <div class="cyber-hud-status">
+        <div class="cyber-badge-online">🟢 SYSTÈME EN LIGNE</div>
+        <div class="cyber-badge-version">VERSION 5.0 ULTRA</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # --- FONCTION UNIVERSELLE DE CHARGEMENT & PRÉPARATION ---
 def load_and_prepare_csv(filepath_or_buffer):
@@ -1065,7 +1355,9 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
                 r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
-                st.markdown(f"**🏢 Emplacement RACK :** `{addr_lbl}`")
+                st.markdown(f"""<div class="wms-address-badge">📍 {addr_lbl}</div>""", unsafe_allow_html=True)
+                yt_query = f"{film_name} {matched_row.get('annee', '')} bande annonce vf".replace(' ', '+')
+                st.markdown(f"""<a href="https://www.youtube.com/results?search_query={yt_query}" target="_blank" style="background: linear-gradient(135deg, #e11d48, #be123c); color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-weight: 700; font-size: 0.95rem; display: inline-block; margin-bottom: 10px; box-shadow: 0 0 12px rgba(225, 29, 72, 0.4);">🎬 VOIR BANDE-ANNONCE VIDÉO (HD) ↗</a>""", unsafe_allow_html=True)
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
                     st.markdown(f"**🏷️ ID MyMovie (Boîtier Physique) :** `#{matched_row['ID MyMovie']}`")
                 if 'ID Unique' in matched_row and pd.notna(matched_row['ID Unique']):
@@ -1133,6 +1425,7 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
 elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
     st.title("📷 Scan Code-Barres par Caméra (Smartphone / Webcam)")
     st.markdown("Prenez en photo le code-barres au dos du boîtier avec **l'appareil photo de votre smartphone ou votre webcam** : l'image est automatiquement analysée et décodée pour positionner le film sur votre étagère avec **ses 5 voisins précédents et suivants**.")
+    st.markdown("""<div class="laser-scanner-box"><div class="laser-beam"></div><div style="font-family: Orbitron, sans-serif; font-size: 1.05rem; font-weight: 700; color: #00f2fe; text-align: center; letter-spacing: 1.5px;">⚡ CAPTEUR OPTIQUE ACTIF // FAISCEAU LASER WMS EN VEILLE</div></div>""", unsafe_allow_html=True)
 
     sorted_df = df.sort_values(
         by=col_titre_fr,
@@ -1267,7 +1560,9 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
                 r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
-                st.markdown(f"**🏢 Emplacement RACK :** `{addr_lbl}`")
+                st.markdown(f"""<div class="wms-address-badge">📍 {addr_lbl}</div>""", unsafe_allow_html=True)
+                yt_query = f"{film_name} {matched_row.get('annee', '')} bande annonce vf".replace(' ', '+')
+                st.markdown(f"""<a href="https://www.youtube.com/results?search_query={yt_query}" target="_blank" style="background: linear-gradient(135deg, #e11d48, #be123c); color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-weight: 700; font-size: 0.95rem; display: inline-block; margin-bottom: 10px; box-shadow: 0 0 12px rgba(225, 29, 72, 0.4);">🎬 VOIR BANDE-ANNONCE VIDÉO (HD) ↗</a>""", unsafe_allow_html=True)
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
                     st.markdown(f"**🏷️ ID MyMovie (Boîtier Physique) :** `#{matched_row['ID MyMovie']}`")
                 if 'ID Unique' in matched_row and pd.notna(matched_row['ID Unique']):
@@ -1390,14 +1685,18 @@ elif menu == "4° Cartographie RACK & Stockage Industriel (WMS)":
                 nb_on_shelf = len(shelf_films)
 
                 # Rendu visuel d'une tablette d'étagère
+                fill_pct = min(100, int((nb_on_shelf / capa_par_etagere) * 100)) if capa_par_etagere > 0 else 100
                 st.markdown(
-                    f"""<div style='background: #1e293b; border-left: 6px solid #0284c7; padding: 12px 18px; border-radius: 8px; margin-bottom: 10px;'>
+                    f"""<div style='background: linear-gradient(90deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.8) 100%); border-left: 6px solid #00f2fe; border-top: 1px solid rgba(0, 242, 254, 0.25); border-right: 1px solid rgba(0, 242, 254, 0.25); border-bottom: 1px solid rgba(0, 242, 254, 0.25); padding: 14px 20px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.4);'>
                         <div style='display: flex; justify-content: space-between; align-items: center;'>
-                            <span style='font-size: 1.15rem; font-weight: bold; color: #38bdf8;'>📑 {rack_selected} — ÉTAGÈRE {e_num:02d}</span>
-                            <span style='background: #0369a1; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.85rem;'>{nb_on_shelf} / {capa_par_etagere} boîtiers</span>
+                            <span style='font-family: Orbitron, sans-serif; font-size: 1.1rem; font-weight: 700; color: #00f2fe; letter-spacing: 0.8px;'>⚡ {rack_selected} // ÉTAGÈRE {e_num:02d}</span>
+                            <span style='background: rgba(0, 242, 254, 0.15); border: 1px solid #00f2fe; color: #38bdf8; padding: 3px 12px; border-radius: 20px; font-family: Rajdhani, sans-serif; font-size: 0.95rem; font-weight: 700;'>{nb_on_shelf} / {capa_par_etagere} boîtiers ({fill_pct}%)</span>
                         </div>
-                        <div style='color: #cbd5e1; margin-top: 6px; font-size: 0.95rem;'>
-                            🔤 <b>Bornes alphabétiques :</b> <code style='color: #f1f5f9;'>{first_title[:28]}</code> ➔ <code style='color: #f1f5f9;'>{last_title[:28]}</code>
+                        <div style='color: #cbd5e1; margin-top: 8px; font-size: 0.95rem;'>
+                            🔤 <b>BORNES ALPHABÉTIQUES :</b> <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 8px; border-radius: 4px;'>{first_title[:32]}</code> ➔ <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 8px; border-radius: 4px;'>{last_title[:32]}</code>
+                        </div>
+                        <div style='width: 100%; background: rgba(51, 65, 85, 0.5); height: 5px; border-radius: 3px; margin-top: 10px; overflow: hidden;'>
+                            <div style='width: {fill_pct}%; background: linear-gradient(90deg, #00f2fe, #38bdf8); height: 100%;'></div>
                         </div>
                     </div>""",
                     unsafe_allow_html=True
