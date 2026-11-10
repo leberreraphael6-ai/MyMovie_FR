@@ -180,30 +180,83 @@ def decode_barcode_robust(pil_img):
     return ""
 
 
-def get_rack_info(alpha_idx, total_count=None, nb_racks=None, nb_etageres=None, capa_override=None):
+def render_physical_shelf_visual(target_rack, target_etagere, target_pos, capa_etagere, shelf_titles=None):
     """
-    Calcule l'adresse industrielle normalisée [RACK - ÉTAGÈRE - EMPLACEMENT] selon le rang alphabétique.
-    Gère la capacité dynamique et la marge d'expansion.
+    Dessine visuellement le compartiment d'étagère avec ses positions de DVD alignées
+    comme sur la photo réelle de la bibliothèque blanche de Raf.
+    La position ciblée est illuminée en néon cyan.
+    Chaîne compacte sans indentation pour éviter l'interprétation code-block de Markdown.
+    """
+    slots_html = []
+    for pos_i in range(1, capa_etagere + 1):
+        is_target = (pos_i == target_pos)
+        titre = shelf_titles.get(pos_i, f"Place #{pos_i}") if shelf_titles else f"Place #{pos_i}"
+        
+        if is_target:
+            slots_html.append(
+                f'<div style="flex:1;min-width:48px;height:95px;background:linear-gradient(180deg,#00f2fe,#0284c7);border:2px solid #ffffff;border-radius:6px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-shadow:0 0 20px #00f2fe;color:#ffffff;font-family:Orbitron,sans-serif;font-weight:800;animation:cyber_pulse 1.5s infinite;" title="CIBLE : {titre}">'
+                f'<span style="font-size:0.65rem;color:#f8fafc;letter-spacing:1px;">CIBLE</span>'
+                f'<span style="font-size:1.15rem;color:#ffffff;font-weight:900;">#{pos_i:02d}</span>'
+                f'<span style="font-size:0.6rem;background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;color:#e0f2fe;margin-top:2px;">★ ICI</span>'
+                f'</div>'
+            )
+        else:
+            slots_html.append(
+                f'<div style="flex:1;min-width:38px;height:95px;background:linear-gradient(180deg,#334155,#1e293b);border:1px solid #475569;border-radius:5px;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#94a3b8;font-family:Rajdhani,sans-serif;font-weight:700;" title="{titre}">'
+                f'<span style="font-size:0.6rem;color:#64748b;">POS</span>'
+                f'<span style="font-size:1.0rem;color:#cbd5e1;">#{pos_i:02d}</span>'
+                f'</div>'
+            )
+
+    slots_str = "".join(slots_html)
+    
+    html = (
+        f'<div style="background:#0f172a;border:2px solid #38bdf8;border-radius:10px;padding:14px;margin:12px 0;box-shadow:0 0 20px rgba(56,189,248,0.25);">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+        f'<span style="font-family:Orbitron,sans-serif;font-size:1.1rem;font-weight:700;color:#38bdf8;letter-spacing:1px;">🏢 RACK {target_rack:02d} // ÉTAGÈRE {target_etagere:02d}</span>'
+        f'<span style="background:rgba(0,242,254,0.15);border:1px solid #00f2fe;color:#00f2fe;padding:3px 12px;border-radius:14px;font-family:Rajdhani,sans-serif;font-weight:700;font-size:0.9rem;">POSITION {target_pos:02d} / {capa_etagere}</span>'
+        f'</div>'
+        f'<div style="display:flex;gap:6px;background:#1e293b;padding:12px;border-radius:8px;border:1px solid #334155;overflow-x:auto;">'
+        f'{slots_str}'
+        f'</div>'
+        f'<div style="margin-top:10px;font-size:0.85rem;color:#94a3b8;font-family:Rajdhani,sans-serif;display:flex;justify-content:space-between;font-weight:600;">'
+        f'<span>◀ Gauche (Position 01)</span>'
+        f'<span style="color:#00f2fe;font-weight:700;text-shadow:0 0 8px rgba(0,242,254,0.5);">★ Boîtier Ciblé : Position #{target_pos:02d}</span>'
+        f'<span>Droite (Position {capa_etagere:02d}) ▶</span>'
+        f'</div>'
+        f'</div>'
+    )
+    return html
+
+def get_rack_info(alpha_idx, total_count=None, nb_etageres=None, capa_etagere=None, invert_etageres=False):
+    """
+    Système WMS Topologique Physique de Référence (Inspiré du meuble réel) :
+    - 1 RACK = Colonne verticale de N Étagères (défaut : 8)
+    - 1 ÉTAGÈRE = Compartiment de P boîtiers/DVD alignés (défaut : 10)
+    - Capacité d'un Rack = N * P (défaut : 8 * 10 = 80 DVD)
+    - Calcule précisément : RACK N°, ÉTAGÈRE N° (1 à 8), POSITION N° (1 à 10)
     """
     if total_count is None:
-        total_count = len(df)
-    if nb_racks is None:
-        nb_racks = getattr(st.session_state, 'cfg_nb_racks', 12)
+        total_count = getattr(st.session_state, 'total_films_count', 4771)
     if nb_etageres is None:
-        nb_etageres = getattr(st.session_state, 'cfg_nb_etageres', 10)
-    
-    if capa_override is not None and capa_override > 0:
-        capa = capa_override
-    else:
-        tot_shelves = max(1, nb_racks * nb_etageres)
-        capa = math.ceil(total_count / tot_shelves)
+        nb_etageres = getattr(st.session_state, 'cfg_nb_etageres', 8)
+    if capa_etagere is None:
+        capa_etagere = getattr(st.session_state, 'cfg_capa_etagere', 10)
 
-    rack = (alpha_idx // (nb_etageres * capa)) + 1
-    sub = alpha_idx % (nb_etageres * capa)
-    etagere = (sub // capa) + 1
-    empl = (sub % capa) + 1
-    addr_str = f"RACK {rack:02d} | ÉTAGÈRE {etagere:02d} | EMPL {empl:03d}"
-    return rack, etagere, empl, capa, addr_str
+    capa_rack = max(1, nb_etageres * capa_etagere)
+    rack = (alpha_idx // capa_rack) + 1
+    idx_in_rack = alpha_idx % capa_rack
+    
+    etagere_brut = (idx_in_rack // capa_etagere) + 1
+    if invert_etageres:
+        etagere = nb_etageres - etagere_brut + 1
+    else:
+        etagere = etagere_brut
+        
+    pos_in_shelf = (idx_in_rack % capa_etagere) + 1
+    code_court = f"R{rack:02d}-E{etagere:02d}-P{pos_in_shelf:02d}"
+    addr_str = f"RACK {rack:02d} // ÉTAGÈRE {etagere:02d} // POSITION {pos_in_shelf:02d} (sur {capa_etagere})"
+    return rack, etagere, pos_in_shelf, capa_etagere, addr_str
 
 import re
 import urllib.parse
@@ -219,7 +272,7 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="⚡ TDBI Filmotheque v5.0 Ultra // Système Tactique",
+    page_title="⚡ Volt Ciné-WMS v5.0 Ultra // Système Tactique",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -503,9 +556,9 @@ h2, h3 {
 
 <div class="cyber-hud-banner">
     <div>
-        <div class="cyber-title">⚡ TDBI CINÉ // SYSTÈME DE SUPERVISION</div>
+        <div class="cyber-title">⚡ VOLT CINÉ-WMS // SYSTÈME DE SUPERVISION</div>
         <div style="font-family: Rajdhani, sans-serif; color: #94a3b8; font-size: 0.95rem; letter-spacing: 1px; margin-top: 4px;">
-            GESTION FILMOTHEQUE | INVENTAIRE | SCAN & RACKING
+            PLATEFORME LOGISTIQUE DE PRÉCISION • GESTION TOPOLOGIQUE RACK 4K
         </div>
     </div>
     <div class="cyber-hud-status">
@@ -1354,8 +1407,9 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
 
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
-                r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
+                r_k, e_k, p_k, capa_k, addr_lbl = get_rack_info(idx)
                 st.markdown(f"""<div class="wms-address-badge">📍 {addr_lbl}</div>""", unsafe_allow_html=True)
+                st.markdown(render_physical_shelf_visual(r_k, e_k, p_k, capa_k), unsafe_allow_html=True)
                 yt_query = f"{film_name} {matched_row.get('annee', '')} bande annonce vf".replace(' ', '+')
                 st.markdown(f"""<a href="https://www.youtube.com/results?search_query={yt_query}" target="_blank" style="background: linear-gradient(135deg, #e11d48, #be123c); color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-weight: 700; font-size: 0.95rem; display: inline-block; margin-bottom: 10px; box-shadow: 0 0 12px rgba(225, 29, 72, 0.4);">🎬 VOIR BANDE-ANNONCE VIDÉO (HD) ↗</a>""", unsafe_allow_html=True)
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
@@ -1559,8 +1613,9 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
 
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
-                r_k, e_k, p_k, _, addr_lbl = get_rack_info(idx)
+                r_k, e_k, p_k, capa_k, addr_lbl = get_rack_info(idx)
                 st.markdown(f"""<div class="wms-address-badge">📍 {addr_lbl}</div>""", unsafe_allow_html=True)
+                st.markdown(render_physical_shelf_visual(r_k, e_k, p_k, capa_k), unsafe_allow_html=True)
                 yt_query = f"{film_name} {matched_row.get('annee', '')} bande annonce vf".replace(' ', '+')
                 st.markdown(f"""<a href="https://www.youtube.com/results?search_query={yt_query}" target="_blank" style="background: linear-gradient(135deg, #e11d48, #be123c); color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-weight: 700; font-size: 0.95rem; display: inline-block; margin-bottom: 10px; box-shadow: 0 0 12px rgba(225, 29, 72, 0.4);">🎬 VOIR BANDE-ANNONCE VIDÉO (HD) ↗</a>""", unsafe_allow_html=True)
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
@@ -1730,11 +1785,12 @@ elif menu == "4° Cartographie RACK & Stockage Industriel (WMS)":
                 else:
                     target_i = f_indices[0]
 
-                r_t, e_t, p_t, _, addr_res = get_rack_info(target_i)
+                r_t, e_t, p_t, capa_t, addr_res = get_rack_info(target_i)
                 row_t = sorted_df.iloc[target_i]
 
                 st.success(f"🎯 **{row_t[col_titre_fr]}** localisé avec succès !")
                 st.markdown(f"### 📍 Adresse de Stockage : `{addr_res}`")
+                st.markdown(render_physical_shelf_visual(r_t, e_t, p_t, capa_t), unsafe_allow_html=True)
 
                 w1, w2, w3 = st.columns(3)
                 w1.metric("🏢 Meuble / Rack", f"RACK {r_t:02d}")
