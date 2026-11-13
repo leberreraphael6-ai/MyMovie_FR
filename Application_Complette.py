@@ -1,8 +1,46 @@
+
+# ==============================================================================
+# GESTION DES VERSIONS DU SYSTÈME (SEMVER : MAJEURE . MINEURE . RÉVISION)
+# ==============================================================================
+APP_VERSION_MAJOR = 5
+APP_VERSION_MINOR = 6
+APP_VERSION_PATCH = 4
+APP_VERSION_LABEL = f"v{APP_VERSION_MAJOR}.{APP_VERSION_MINOR}.{APP_VERSION_PATCH}"
+APP_RELEASE_TITLE = "Superviseur Ciné-WMS Industrial Hub"
+APP_BUILD_DATE = "Novembre 2026"
+
+import sys
+import os
 import streamlit as st
 import pandas as pd
 import io
 import os
 import math
+import html
+
+import json
+
+RACK_CONFIG_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd(), "rack_topology_config.json")
+
+def load_persisted_rack_configs():
+    """Charge la configuration sur-mesure des racks sauvegardée sur disque"""
+    if os.path.exists(RACK_CONFIG_JSON_PATH):
+        try:
+            with open(RACK_CONFIG_JSON_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return {int(k): v for k, v in data.items()}
+        except Exception:
+            return {}
+    return {}
+
+def save_persisted_rack_configs(configs):
+    """Sauvegarde la configuration sur-mesure des racks sur disque (persistance)"""
+    try:
+        with open(RACK_CONFIG_JSON_PATH, "w", encoding="utf-8") as f:
+            json.dump(configs, f, indent=2)
+    except Exception:
+        pass
+
 
 # ==============================================================================
 # MOTEURS OPTIQUES & CALCULATEURS INDUSTRIELS (RACK & SCAN)
@@ -216,6 +254,34 @@ def enrich_with_physical_wms(df_input, nb_etageres=8, capa_etagere=10, custom_ra
     return df_res, sorted_boxes, box_to_geo
 
 
+
+def render_interactive_shelf_grid(shelf_movies, current_rack, current_etagere, target_id=None):
+    import html
+    """
+    Rendu graphique interactif de l'étagère réelle avec liens cliquables
+    qui ouvrent la fiche détaillée du film dans un nouvel onglet (?film_id=...).
+    Code HTML compacté sans indentation multi-lignes pour éviter que Streamlit ne l'interprète en bloc de code.
+    """
+    spines_html = []
+    for m in shelf_movies:
+        pos = m.get('POSITION', 1)
+        titre = html.escape(str(m.get('Boitier_Rangement', m.get('titre', 'Film'))))
+        f_id = m.get('ID Unique', m.get('id', ''))
+        is_coffret = str(m.get('Type_Rangement', '')).startswith('📦')
+        is_target = str(f_id) == str(target_id)
+        
+        bg_spine = "linear-gradient(180deg, #059669 0%, #064e3b 100%)" if is_target else ("linear-gradient(180deg, #d97706 0%, #78350f 100%)" if is_coffret else "linear-gradient(180deg, #1e293b 0%, #0f172a 100%)")
+        border_spine = "2px solid #34d399" if is_target else ("2px solid #f59e0b" if is_coffret else "1px solid #475569")
+        badge_icon = "⭐" if is_target else ("📦" if is_coffret else "💿")
+        
+        spine_item = f'''<a href="?film_id={f_id}" target="_blank" style="text-decoration:none; flex:0 0 44px; height:180px; background:{bg_spine}; border:{border_spine}; border-radius:4px; display:flex; flex-direction:column; justify-content:space-between; padding:6px 2px; box-shadow:2px 4px 10px rgba(0,0,0,0.6); cursor:pointer;" title="Position {pos:02d} : {titre} (Cliquer pour ouvrir la fiche complète)"><div style="font-size:0.65rem; text-align:center; color:#38bdf8; font-family:Orbitron; font-weight:bold;">{pos:02d}</div><div style="writing-mode:vertical-rl; transform:rotate(180deg); font-family:Rajdhani, sans-serif; font-size:0.72rem; font-weight:700; color:#f8fafc; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-height:110px; width:100%;">{titre}</div><div style="font-size:0.75rem; text-align:center;">{badge_icon}</div></a>'''
+        spines_html.append(spine_item)
+
+    all_spines = "".join(spines_html)
+    
+    html_out = f'''<div style="background:linear-gradient(180deg, #0f172a 0%, #020617 100%); border:2px solid #00f2fe; border-radius:12px; padding:16px; margin-bottom:22px; box-shadow:0 8px 30px rgba(0, 242, 254, 0.2);"><div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(0, 242, 254, 0.3); padding-bottom:8px; margin-bottom:12px;"><div style="font-family:Orbitron, sans-serif; font-size:1.05rem; color:#00f2fe; font-weight:800; letter-spacing:1px;">🏢 RACK {current_rack:02d} // ÉTAGÈRE {current_etagere:02d} (VUE GRAPHIQUE TEMPS RÉEL)</div><div style="font-family:Rajdhani, sans-serif; font-size:0.95rem; color:#38bdf8; font-weight:700;">{len(shelf_movies)} BOÎTIERS EN POSITION</div></div><div style="display:flex; flex-wrap:nowrap; overflow-x:auto; gap:6px; padding:15px 10px 8px 10px; background:rgba(3, 7, 18, 0.8); border-radius:8px; border-bottom:10px solid #334155; min-height:220px; align-items:flex-end;">{all_spines}</div><div style="margin-top:8px; font-size:0.8rem; color:#94a3b8; font-family:Inter, sans-serif; display:flex; justify-content:space-between;"><span>💿 Boîtier Standard &nbsp;|&nbsp; 📦 Coffret Multi-films &nbsp;|&nbsp; ⭐ Film Ciblé</span><span>💡 <i>Cliquez sur une tranche pour ouvrir sa fiche détaillée dans un nouvel onglet</i></span></div></div>'''
+    return html_out
+
 def render_physical_shelf_visual(target_rack, target_etagere, target_pos, capa_etagere, shelf_titles=None):
     """
     Dessine visuellement le compartiment d'étagère avec ses positions de DVD alignées
@@ -264,6 +330,59 @@ def render_physical_shelf_visual(target_rack, target_etagere, target_pos, capa_e
     )
     return html
 
+
+def compute_wms_topology(df_in, custom_configs, default_nb_etageres=8, default_capa_etagere=10):
+    """
+    Moteur WMS Unifié et Réactif :
+    Alloue chaque titre de la vidéothèque dans l'ordre alphabétique strict
+    en respectant rigoureusement la configuration propre à chaque Rack
+    (nombre d'étagères et capacité par étagère définis ou personnalisés).
+    """
+    col_t = next((c for c in df_in.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais', 'titre_vf']), None)
+    if not col_t:
+        col_t = next((c for c in df_in.columns if 'titre' in c.lower() or 'title' in c.lower()), df_in.columns[0])
+        
+    sorted_df = df_in.sort_values(
+        by=col_t,
+        key=lambda x: x.astype(str).str.lower()
+    ).reset_index(drop=True)
+    
+    total_films = len(sorted_df)
+    current_rack = 1
+    current_eta = 1
+    current_pos = 1
+    
+    cur_cfg = custom_configs.get(current_rack, {'nb_etageres': default_nb_etageres, 'capa_etagere': default_capa_etagere})
+    max_eta = cur_cfg.get('nb_etageres', default_nb_etageres)
+    max_capa = cur_cfg.get('capa_etagere', default_capa_etagere)
+    
+    allocations = []
+    
+    for i in range(total_films):
+        if current_pos > max_capa:
+            current_pos = 1
+            current_eta += 1
+            
+        if current_eta > max_eta:
+            current_rack += 1
+            current_eta = 1
+            current_pos = 1
+            cur_cfg = custom_configs.get(current_rack, {'nb_etageres': default_nb_etageres, 'capa_etagere': default_capa_etagere})
+            max_eta = cur_cfg.get('nb_etageres', default_nb_etageres)
+            max_capa = cur_cfg.get('capa_etagere', default_capa_etagere)
+            
+        addr_str = f"RACK {current_rack:02d} // ÉTAGÈRE {current_eta:02d} // POSITION {current_pos:02d} (sur {max_capa})"
+        allocations.append((current_rack, current_eta, current_pos, max_capa, addr_str))
+        current_pos += 1
+        
+    res_df = sorted_df.copy()
+    res_df['RACK'] = [a[0] for a in allocations]
+    res_df['ETAGERE'] = [a[1] for a in allocations]
+    res_df['POSITION'] = [a[2] for a in allocations]
+    res_df['CAPA_MAX_ETAGERE'] = [a[3] for a in allocations]
+    res_df['Adresse_Rangement_WMS'] = [a[4] for a in allocations]
+    return res_df
+
 def get_rack_info(alpha_idx, total_count=None, nb_etageres=None, capa_etagere=None, invert_etageres=False):
     """
     Système WMS Topologique Physique de Référence (Inspiré du meuble réel) :
@@ -308,7 +427,7 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="⚡ TdBI Ciné-WMS v5.5 Ultra // Système Tactique",
+    page_title=f"⚡ Volt Ciné-WMS {APP_VERSION_LABEL} // Industrial Hub",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -643,7 +762,7 @@ div[data-testid="stDataFrame"] > div {
     </div>
     <div class="cyber-hud-status">
         <div class="cyber-badge-online">🟢 SYSTÈME EN LIGNE</div>
-        <div class="cyber-badge-version">VERSION 5.5.0 ULTRA</div>
+        <div class="cyber-badge-version">VERSION 5.0 ULTRA</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -932,6 +1051,117 @@ df, sorted_physical_boxes, box_geo_map = enrich_with_physical_wms(
 )
 st.session_state['df_films'] = df
 
+# Détection universelle et robuste des colonnes dès le chargement du DataFrame
+col_titre_fr = next((c for c in df.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais', 'titre_vf']), None)
+if not col_titre_fr:
+    col_titre_fr = next((c for c in df.columns if 'titre' in c.lower() or 'title' in c.lower()), df.columns[0])
+
+col_titre_vo = next((c for c in df.columns if 'original' in c.lower() or 'vo' in c.lower() or 'titre_vo' in c.lower()), None)
+col_director = next((c for c in df.columns if 'directeur' in c.lower() or 'director' in c.lower() or 'realisateur' in c.lower()), None)
+col_actors = next((c for c in df.columns if 'acteur' in c.lower() or 'actors' in c.lower() or 'cast' in c.lower()), None)
+col_genres = next((c for c in df.columns if 'genre' in c.lower()), None)
+col_production = next((c for c in df.columns if 'production' in c.lower() or 'studio' in c.lower() or 'distributeur' in c.lower()), None)
+col_barcode = next((c for c in df.columns if 'barcode' in c.lower() or 'barre' in c.lower() or 'ean' in c.lower() or 'upc' in c.lower()), None)
+
+
+# --- MODE FICHE DÉTAILLÉE DU FILM (OUVERTURE DANS UN NOUVEL ONGLET) ---
+query_params = st.query_params
+active_film_param = query_params.get("film_id", None)
+
+if active_film_param:
+    st.set_page_config(page_title="Fiche Film & Position Étagère - Superviseur Ciné", page_icon="🎬", layout="wide")
+    st.markdown("""
+    <style>
+    .film-detail-banner {
+        background: linear-gradient(135deg, rgba(0, 242, 254, 0.15), rgba(79, 70, 229, 0.25));
+        border: 2px solid #00f2fe;
+        border-radius: 12px;
+        padding: 22px 28px;
+        margin-bottom: 25px;
+        box-shadow: 0 8px 32px rgba(0, 242, 254, 0.25);
+    }
+    .wms-geo-tag {
+        display: inline-block;
+        background: linear-gradient(135deg, #059669, #047857);
+        color: white;
+        padding: 8px 18px;
+        border-radius: 8px;
+        font-family: Orbitron, sans-serif;
+        font-weight: 800;
+        font-size: 1.1rem;
+        letter-spacing: 1px;
+        border: 1px solid #34d399;
+        margin-bottom: 12px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Trouver le film ciblé
+    match_f = df[(df.get('ID Unique', '').astype(str) == str(active_film_param)) | (df.get('id', '').astype(str) == str(active_film_param))]
+    if match_f.empty:
+        # Essai par id_film ou titre
+        match_f = df[df.get('id_film', '').astype(str) == str(active_film_param)]
+        
+    if not match_f.empty:
+        r_film = match_f.iloc[0]
+        titre_aff = r_film.get(col_titre_fr, 'Film')
+        geo_addr = r_film.get('Adresse_Rangement_WMS', 'Non localisé')
+        type_rang = r_film.get('Type_Rangement', 'Boîtier Unitaire')
+        boitier_txt = r_film.get('Boitier_Rangement', titre_aff)
+        
+        st.markdown(f"""
+        <div class="film-detail-banner">
+            <div class="wms-geo-tag">📍 {geo_addr}</div>
+            <h1 style="color: #f8fafc; margin-top: 5px; font-family: Orbitron, sans-serif; font-size: 2.1rem;">{titre_aff}</h1>
+            <p style="color: #38bdf8; font-family: Rajdhani, sans-serif; font-size: 1.2rem; font-weight: 600; margin: 0;">{type_rang}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        d_c1, d_c2, d_c3 = st.columns([1.2, 1.4, 1.4])
+        with d_c1:
+            st.subheader("📦 Rangement Physique")
+            st.markdown(f"**📍 Emplacement WMS :** `{geo_addr}`")
+            st.markdown(f"**🏷️ Boîtier sur l'étagère :** `{boitier_txt}`")
+            st.markdown(f"**🏷️ ID MyMovie :** `#{r_film.get('ID MyMovie', r_film.get('id', 'N/A'))}`")
+            st.markdown(f"**🔑 ID Unique :** `{r_film.get('ID Unique', 'N/A')}`")
+            if 'supports' in r_film and pd.notna(r_film['supports']):
+                st.markdown(f"**💿 Formats :** `{r_film['supports']}`")
+                
+        with d_c2:
+            st.subheader("🎬 Éléments Cinématographiques")
+            if 'annee' in r_film and pd.notna(r_film['annee']):
+                st.markdown(f"**📅 Année de sortie :** `{r_film['annee']}`")
+            if 'duree_minutes' in r_film and pd.notna(r_film['duree_minutes']):
+                st.markdown(f"**⏱️ Durée :** `{r_film['duree_minutes']} min`")
+            if col_director and pd.notna(r_film.get(col_director)):
+                st.markdown(f"**🎥 Réalisateur :** {r_film[col_director]}")
+            if col_actors and pd.notna(r_film.get(col_actors)):
+                st.markdown(f"**👥 Acteurs :** {r_film[col_actors]}")
+            if col_genres and pd.notna(r_film.get(col_genres)):
+                st.markdown(f"**🎭 Genres :** {r_film[col_genres]}")
+                
+        with d_c3:
+            st.subheader("🌐 Références Web & Multimédia")
+            if 'rating_imdb' in r_film and pd.notna(r_film['rating_imdb']):
+                st.markdown(f"**⭐ Note IMDb :** `{r_film['rating_imdb']} / 10`")
+            if 'Lien IMDb' in r_film and r_film['Lien IMDb']:
+                st.markdown(f"""
+                <a href="{r_film['Lien IMDb']}" target="_blank" style="display: inline-block; background: #f5c518; color: #000; font-weight: 800; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-size: 1.1rem; box-shadow: 0 4px 14px rgba(245, 197, 24, 0.4); margin-top: 10px;">
+                    ⭐ OUVRIR LA FICHE OFFICIELLE SUR IMDB ↗
+                </a>
+                """, unsafe_allow_html=True)
+            else:
+                q_imdb = f"https://www.imdb.com/find?q={titre_aff.replace(' ', '+')}"
+                st.markdown(f"""<a href="{q_imdb}" target="_blank" style="display: inline-block; background: #f5c518; color: #000; font-weight: 800; padding: 10px 18px; border-radius: 6px; text-decoration: none;">🔍 Chercher sur IMDb ↗</a>""", unsafe_allow_html=True)
+                
+            yt_q = f"https://www.youtube.com/results?search_query={titre_aff.replace(' ', '+')}+bande+annonce+vf"
+            st.markdown(f"""<br><a href="{yt_q}" target="_blank" style="display: inline-block; background: #e11d48; color: white; font-weight: 800; padding: 10px 18px; border-radius: 6px; text-decoration: none; margin-top: 10px;">🎬 Voir Bande-Annonce Vidéo ↗</a>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.caption("Vous pouvez fermer cet onglet pour revenir à l'application principale.")
+        st.stop()
+
+
 st.sidebar.info(f"📊 Source active : **{st.session_state.get('source_name', 'Inconnu')}**\n\n📌 **{len(df):,}** enregistrements".replace(',', ' '))
 
 # Export CSV propre
@@ -949,6 +1179,27 @@ st.sidebar.download_button(
 )
 
 # --- NAVIGATION ---
+
+# En-tête Sidebar avec Badge de Versionnage Sémantique Officiel
+st.sidebar.markdown(f"""
+<div style="background: linear-gradient(135deg, rgba(0, 242, 254, 0.15) 0%, rgba(79, 70, 229, 0.25) 100%); border: 1.5px solid #00f2fe; border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; text-align: center; box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);">
+    <div style="font-family: Orbitron, sans-serif; font-size: 1.15rem; font-weight: 800; color: #00f2fe; letter-spacing: 1px;">
+        🎬 CINÉ-WMS
+    </div>
+    <div style="font-family: Rajdhani, sans-serif; font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-top: 2px;">
+        {APP_RELEASE_TITLE}
+    </div>
+    <div style="display: flex; justify-content: center; gap: 8px; margin-top: 6px;">
+        <span style="background: #00f2fe; color: #020617; font-family: Orbitron; font-size: 0.8rem; font-weight: 800; padding: 2px 8px; border-radius: 4px;">
+            {APP_VERSION_LABEL}
+        </span>
+        <span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; font-family: Rajdhani; font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(148, 163, 184, 0.3);">
+            {APP_BUILD_DATE}
+        </span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 st.sidebar.markdown("---")
 st.sidebar.header("🧭 Menu des Fonctions")
 menu = st.sidebar.radio("Sélectionnez la fonction :", [
@@ -969,7 +1220,19 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🏢 Topologie de Stockage RACK")
 
 if 'custom_rack_configs' not in st.session_state:
-    st.session_state['custom_rack_configs'] = {}
+    try:
+        st.session_state['custom_rack_configs'] = load_persisted_rack_configs()
+    except Exception:
+        # Fallback de secours direct en cas d'accès fichier ou portée
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd(), "rack_topology_config.json")
+        loaded_cfg = {}
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, 'r', encoding='utf-8') as f_cfg:
+                    loaded_cfg = {int(k): v for k, v in json.load(f_cfg).items()}
+            except Exception:
+                loaded_cfg = {}
+        st.session_state['custom_rack_configs'] = loaded_cfg
 
 with st.sidebar.expander("⚙️ Calibrage Individuel par Rack", expanded=False):
     st.markdown("<small style='color: #00f2fe;'>Définissez des hauteurs et capacités sur-mesure pour chaque meuble :</small>", unsafe_allow_html=True)
@@ -981,12 +1244,14 @@ with st.sidebar.expander("⚙️ Calibrage Individuel par Rack", expanded=False)
     with col_sb_r1:
         if st.button("💾 Enregistrer Rack", key="btn_save_custom_rack"):
             st.session_state['custom_rack_configs'][c_rack_id] = {'nb_etageres': c_rack_eta, 'capa_etagere': c_rack_cap}
-            st.success(f"Rack {c_rack_id:02d} configuré !")
+            save_persisted_rack_configs(st.session_state['custom_rack_configs'])
+            st.success(f"Rack {c_rack_id:02d} configuré et sauvegardé !")
             st.rerun()
     with col_sb_r2:
         if st.button("🔄 Réinitialiser", key="btn_reset_custom_rack"):
             if c_rack_id in st.session_state['custom_rack_configs']:
                 del st.session_state['custom_rack_configs'][c_rack_id]
+                save_persisted_rack_configs(st.session_state['custom_rack_configs'])
                 st.rerun()
                 
     if st.session_state['custom_rack_configs']:
@@ -1045,6 +1310,12 @@ def render_custom_table(dataframe, key_id):
         return
 
     col_cfg = {
+        "Fiche WMS": st.column_config.LinkColumn(
+            "🏷️ Fiche WMS",
+            help="Cliquer pour ouvrir la fiche complète (Emplacement exact, étagère et infos)",
+            display_text="📍 Voir Fiche ↗",
+            width="small"
+        ),
         "Lien IMDb": st.column_config.LinkColumn(
             "Lien IMDb",
             help="Ouvrir la fiche officielle du film sur IMDb",
@@ -1133,6 +1404,14 @@ def render_custom_table(dataframe, key_id):
     if 'rating_num' in display_df.columns and 'rating_imdb' in display_df.columns:
         display_df = display_df.drop(columns=['rating_num'])
 
+    # Ajout du lien direct vers la fiche WMS
+    if 'ID Unique' in display_df.columns:
+        display_df['Fiche WMS'] = "?film_id=" + display_df['ID Unique'].astype(str)
+    elif 'id' in display_df.columns:
+        display_df['Fiche WMS'] = "?film_id=" + display_df['id'].astype(str)
+    elif 'ID MyMovie' in display_df.columns:
+        display_df['Fiche WMS'] = "?film_id=" + display_df['ID MyMovie'].astype(str)
+
     # Si on utilise annee_num et duree_num, on masque les chaînes brutes redondantes
     cols_to_exclude = ['source', 'pos_source', 'page', 'id', 'id_film']
     if 'annee_num' in display_df.columns and 'annee' in display_df.columns:
@@ -1145,7 +1424,7 @@ def render_custom_table(dataframe, key_id):
     col_duree_disp = 'duree_num' if 'duree_num' in display_df.columns else ('duree_minutes' if 'duree_minutes' in display_df.columns else None)
 
     preferred_order = [c for c in [
-        'Position', 'Repère', 'ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr,
+        'Position', 'Repère', 'Fiche WMS', 'ID MyMovie', 'ID Unique', 'Réf Entrée', col_titre_fr,
         col_annee_disp, col_duree_disp, 'rating_imdb', 'supports', col_genres, col_director,
         col_actors, col_production, 'date_ajout', 'pays', col_barcode, 'Lien IMDb'
     ] if c and c in display_df.columns]
@@ -1536,11 +1815,24 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
 
             st.success(f"🎯 Film identifié : **{film_name}** (Position alphabétique **{idx + 1}** sur {len(sorted_df):,}).".replace(',', ' '))
 
+            # Calcul topologique réactif selon les configurations racks
+            custom_cfgs = st.session_state.get('custom_rack_configs', {})
+            wms_df_live = compute_wms_topology(df, custom_cfgs, default_nb_etageres=nb_etageres_cfg, default_capa_etagere=capa_calc_etagere)
+            match_live = wms_df_live[wms_df_live['id_film'] == matched_row['id_film']] if 'id_film' in wms_df_live.columns else wms_df_live[wms_df_live[col_titre_fr] == matched_row[col_titre_fr]]
+            r_target_row = match_live.iloc[0] if not match_live.empty else matched_row
+            
+            r_cur = int(r_target_row['RACK'])
+            e_cur = int(r_target_row['ETAGERE'])
+            p_cur = int(r_target_row['POSITION'])
+            addr_live = r_target_row['Adresse_Rangement_WMS']
+            f_target_id = r_target_row.get('ID Unique', r_target_row.get('id', ''))
+            shelf_subset = wms_df_live[(wms_df_live['RACK'] == r_cur) & (wms_df_live['ETAGERE'] == e_cur)].to_dict('records')
+            
+            st.markdown(render_interactive_shelf_grid(shelf_subset, r_cur, e_cur, target_id=f_target_id), unsafe_allow_html=True)
+
             ci_c1, ci_c2, ci_c3 = st.columns(3)
             with ci_c1:
-                r_k, e_k, p_k, capa_k, addr_lbl = get_rack_info(idx)
-                st.markdown(f"""<div class="wms-address-badge">📍 {addr_lbl}</div>""", unsafe_allow_html=True)
-                st.markdown(render_physical_shelf_visual(r_k, e_k, p_k, capa_k), unsafe_allow_html=True)
+                st.markdown(f"""<div class="wms-address-badge">📍 {addr_live}</div>""", unsafe_allow_html=True)
                 yt_query = f"{film_name} {matched_row.get('annee', '')} bande annonce vf".replace(' ', '+')
                 st.markdown(f"""<a href="https://www.youtube.com/results?search_query={yt_query}" target="_blank" style="background: linear-gradient(135deg, #e11d48, #be123c); color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-family: Rajdhani, sans-serif; font-weight: 700; font-size: 0.95rem; display: inline-block; margin-bottom: 10px; box-shadow: 0 0 12px rgba(225, 29, 72, 0.4);">🎬 VOIR BANDE-ANNONCE VIDÉO (HD) ↗</a>""", unsafe_allow_html=True)
                 if 'ID MyMovie' in matched_row and pd.notna(matched_row['ID MyMovie']):
@@ -1815,167 +2107,219 @@ elif menu == "3° Scan Code-Barres par Caméra (Smartphone / Webcam)":
 # ==============================================================================
 elif menu == "4° Cartographie RACK & Stockage Industriel (WMS)":
     st.title("🏢 Cartographie RACK & Stockage Industriel (WMS)")
-    st.markdown("Système de gestion d'emplacement logistique pour vidéothèque physique : vos **4 771 films** sont modélisés selon la norme industrielle standard **`[RACK ➔ ÉTAGÈRE ➔ EMPLACEMENT]`** basée sur le tri alphabétique rigoureux.")
+    st.markdown("Système de gestion logistique physique : vos **4 771 films** sont modélisés et mis à jour dynamiquement selon la norme industrielle **`[RACK ➔ ÉTAGÈRE ➔ POSITION]`** d'après votre configuration.")
 
-    sorted_df = df.sort_values(
-        by=col_titre_fr,
-        key=lambda x: x.astype(str).str.lower()
-    ).reset_index(drop=True)
+    # 1. Calcul dynamique du stockage WMS en fonction des configurations individuelles des racks
+    custom_cfgs = st.session_state.get('custom_rack_configs', {})
+    wms_df = compute_wms_topology(
+        df,
+        custom_cfgs,
+        default_nb_etageres=nb_etageres_cfg,
+        default_capa_etagere=capa_calc_etagere
+    )
+    
+    total_films = len(wms_df)
+    total_racks_actifs = int(wms_df['RACK'].max())
+    
+    # 2. Calcul du résumé par armoire / rack pour la vue synthétique
+    racks_summary = []
+    total_places_totales = 0
+    total_etageres_totales = 0
+    
+    for r_i in range(1, total_racks_actifs + 1):
+        r_cfg = custom_cfgs.get(r_i, {'nb_etageres': nb_etageres_cfg, 'capa_etagere': capa_calc_etagere})
+        r_eta = r_cfg.get('nb_etageres', nb_etageres_cfg)
+        r_cap = r_cfg.get('capa_etagere', capa_calc_etagere)
+        r_capa_tot = r_eta * r_cap
+        
+        sub_r = wms_df[wms_df['RACK'] == r_i]
+        n_films = len(sub_r)
+        pct = round((n_films / r_capa_tot * 100), 1) if r_capa_tot > 0 else 0
+        
+        b_first = str(sub_r.iloc[0][col_titre_fr]) if n_films > 0 else "Vide"
+        b_last = str(sub_r.iloc[-1][col_titre_fr]) if n_films > 0 else "Vide"
+        
+        total_places_totales += r_capa_tot
+        total_etageres_totales += r_eta
+        
+        racks_summary.append({
+            'rack_id': r_i,
+            'nb_etageres': r_eta,
+            'capa_par_etagere': r_cap,
+            'capa_totale': r_capa_tot,
+            'nb_films': n_films,
+            'taux_remplissage': pct,
+            'borne_debut': b_first,
+            'borne_fin': b_last
+        })
 
-    total_films = len(sorted_df)
-    total_tablettes = nb_racks_cfg * nb_etageres_cfg
-    capa_par_etagere = capa_calc_etagere if "capa_calc_etagere" in locals() and capa_calc_etagere > 0 else (math.ceil(total_films / total_tablettes) if total_tablettes > 0 else 1)
-    capacite_theorique = total_tablettes * capa_par_etagere
-    taux_occupation = (total_films / capacite_theorique * 100) if capacite_theorique > 0 else 100.0
+    taux_global = round((total_films / total_places_totales * 100), 1) if total_places_totales > 0 else 100.0
 
     # KPI Logistiques
     kpi_w1, kpi_w2, kpi_w3, kpi_w4 = st.columns(4)
     with kpi_w1:
         st.metric("📦 Unités Stockées", f"{total_films:,}".replace(',', ' '))
     with kpi_w2:
-        st.metric("🏢 Racks Physiques", f"{nb_racks_cfg} Racks")
+        st.metric("🏢 Racks Physiques Déployés", f"{total_racks_actifs} Racks")
     with kpi_w3:
-        st.metric("📐 Tablettes Actives", f"{total_tablettes} Étagères")
+        st.metric("📐 Tablettes Actives", f"{total_etageres_totales} Étagères")
     with kpi_w4:
-        st.metric("📊 Taux de Remplissage", f"{taux_occupation:.1f} %", f"~{capa_par_etagere} boîtiers/tablette")
+        st.metric("📊 Taux d'Occupation Global", f"{taux_global} %", f"{total_films}/{total_places_totales} places")
 
     st.markdown("---")
 
-    # Onglets d'exploitation logistique
-    tab_rack_visu, tab_rack_search, tab_rack_labels = st.tabs([
-        "🗺️ Coupe 2D du Meuble (Visualisation Rack)",
-        "🎯 Recherche Directe d'Emplacement",
-        "🏷️ Répertoire des Bornes & Étiquettes"
-    ])
+    # Navigation réactive au sein de la Cartographie RACK
+    if 'wms_active_view' not in st.session_state:
+        st.session_state['wms_active_view'] = "🏙️ Vue Synthétique de toutes les Armoires"
 
-    with tab_rack_visu:
-        st.subheader("Inspection Visuelle par Rack (Meuble)")
-        rack_selected = st.selectbox(
-            "Sélectionnez le RACK (Meuble / Colonne) à inspecter :",
-            [f"RACK {r:02d}" for r in range(1, nb_racks_cfg + 1)],
-            index=0
+    # Barre de navigation des vues WMS
+    v_col1, v_col2 = st.columns([3, 1])
+    with v_col1:
+        wms_view_choice = st.radio(
+            "Mode d'affichage WMS :",
+            ["🏙️ Vue Synthétique de toutes les Armoires", "🗺️ Coupe 2D du Meuble (Détail du Rack)", "🎯 Recherche Directe d'Emplacement"],
+            index=["🏙️ Vue Synthétique de toutes les Armoires", "🗺️ Coupe 2D du Meuble (Détail du Rack)", "🎯 Recherche Directe d'Emplacement"].index(st.session_state['wms_active_view']) if st.session_state['wms_active_view'] in ["🏙️ Vue Synthétique de toutes les Armoires", "🗺️ Coupe 2D du Meuble (Détail du Rack)", "🎯 Recherche Directe d'Emplacement"] else 0,
+            horizontal=True,
+            key="wms_view_selector_radio"
         )
-        r_num = int(rack_selected.split()[1])
+        st.session_state['wms_active_view'] = wms_view_choice
 
-        st.caption(f"Visualisation en coupe verticale du **{rack_selected}** (du haut vers le bas, de l'Étagère 01 à l'Étagère {nb_etageres_cfg:02d}) :")
+    # --- VUE 1 : SYNTHÈSE DES ARMOIRES ---
+    if st.session_state['wms_active_view'] == "🏙️ Vue Synthétique de toutes les Armoires":
+        st.subheader("🏙️ Vue Panoramique Synthétique de votre Vidéothèque")
+        st.caption("Visualisez en un clin d'œil toutes vos armoires/racks, leurs taux d'occupation et leurs bornes alphabétiques. **Cliquez sur une armoire pour ouvrir immédiatement son contenu détaillé :**")
+        
+        # Grille interactive des armoires avec boutons de navigation directe
+        cols_grid = st.columns(4)
+        for idx_r, r_info in enumerate(racks_summary):
+            col_target = cols_grid[idx_r % 4]
+            with col_target:
+                pct = r_info['taux_remplissage']
+                b_color = "#00f2fe" if pct >= 100 else ("#f59e0b" if pct > 0 else "#64748b")
+                
+                # Carte d'armoire stylisée
+                st.markdown(f"""
+                <div style="background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9)); border: 1.5px solid {b_color}; border-radius: 10px; padding: 12px; margin-bottom: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-family: Orbitron; font-weight: 800; color: #00f2fe; font-size: 1.05rem;">🏢 RACK {r_info['rack_id']:02d}</span>
+                        <span style="background: rgba(0, 242, 254, 0.15); color: #38bdf8; font-family: Rajdhani; font-weight: 700; padding: 2px 8px; border-radius: 10px; font-size: 0.85rem;">{pct}%</span>
+                    </div>
+                    <div style="font-size: 0.82rem; color: #cbd5e1; font-family: Rajdhani; margin-top: 4px;">
+                        📐 <b>{r_info['nb_etageres']} étagères</b> &nbsp;|&nbsp; 📦 <b>{r_info['nb_films']} / {r_info['capa_totale']} films</b>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #38bdf8;">
+                        🔤 {r_info['borne_debut'][:18]} ➔ {r_info['borne_fin'][:18]}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Bouton de sélection / détail pour cette armoire
+                if st.button(f"🔍 Ouvrir RACK {r_info['rack_id']:02d}", key=f"btn_rack_sel_{r_info['rack_id']}", use_container_width=True):
+                    st.session_state['active_selected_rack'] = r_info['rack_id']
+                    st.session_state['wms_active_view'] = "🗺️ Coupe 2D du Meuble (Détail du Rack)"
+                    st.rerun()
 
-        for e_num in range(1, nb_etageres_cfg + 1):
-            # Calcul des indices de films sur cette étagère
-            start_idx = ((r_num - 1) * nb_etageres_cfg + (e_num - 1)) * capa_par_etagere
-            end_idx = min(start_idx + capa_par_etagere, total_films)
+    # --- VUE 2 : COUPE 2D DU MEUBLE ---
+    elif st.session_state['wms_active_view'] == "🗺️ Coupe 2D du Meuble (Détail du Rack)":
+        st.subheader("🗺️ Coupe 2D du Meuble & Inspection Visuelle Réelle")
+        
+        # Synchronisation du rack sélectionné via la vue synthétique ou la liste déroulante
+        default_r_index = 0
+        if 'active_selected_rack' in st.session_state and 1 <= st.session_state['active_selected_rack'] <= total_racks_actifs:
+            default_r_index = st.session_state['active_selected_rack'] - 1
+            
+        rack_selected_str = st.selectbox(
+            "Sélectionnez le RACK (Meuble / Colonne) à inspecter :",
+            [f"RACK {r:02d}" for r in range(1, total_racks_actifs + 1)],
+            index=default_r_index,
+            key="wms_active_rack_selectbox"
+        )
+        r_num = int(rack_selected_str.split()[1])
+        st.session_state['active_selected_rack'] = r_num
 
-            if start_idx < total_films:
-                shelf_films = sorted_df.iloc[start_idx:end_idx]
-                first_title = shelf_films.iloc[0][col_titre_fr]
-                last_title = shelf_films.iloc[-1][col_titre_fr]
-                nb_on_shelf = len(shelf_films)
+        cur_rack_cfg = custom_cfgs.get(r_num, {'nb_etageres': nb_etageres_cfg, 'capa_etagere': capa_calc_etagere})
+        r_nb_eta = cur_rack_cfg.get('nb_etageres', nb_etageres_cfg)
+        r_capa_eta = cur_rack_cfg.get('capa_etagere', capa_calc_etagere)
 
-                # Rendu visuel d'une tablette d'étagère
-                fill_pct = min(100, int((nb_on_shelf / capa_par_etagere) * 100)) if capa_par_etagere > 0 else 100
+        st.caption(f"Visualisation en coupe verticale du **{rack_selected_str}** ({r_nb_eta} étagères de capacité {r_capa_eta} boîtiers, du haut vers le bas) :")
+
+        for e_num in range(1, r_nb_eta + 1):
+            shelf_movies_df = wms_df[(wms_df['RACK'] == r_num) & (wms_df['ETAGERE'] == e_num)]
+            nb_on_shelf = len(shelf_movies_df)
+
+            if nb_on_shelf > 0:
+                first_title = shelf_movies_df.iloc[0][col_titre_fr]
+                last_title = shelf_movies_df.iloc[-1][col_titre_fr]
+                fill_pct = min(100, int((nb_on_shelf / r_capa_eta) * 100)) if r_capa_eta > 0 else 100
+
+                # Barre d'en-tête de la tablette
                 st.markdown(
-                    f"""<div style='background: linear-gradient(90deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.8) 100%); border-left: 6px solid #00f2fe; border-top: 1px solid rgba(0, 242, 254, 0.25); border-right: 1px solid rgba(0, 242, 254, 0.25); border-bottom: 1px solid rgba(0, 242, 254, 0.25); padding: 14px 20px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.4);'>
+                    f"""<div style='background: linear-gradient(90deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.8) 100%); border-left: 6px solid #00f2fe; border-top: 1px solid rgba(0, 242, 254, 0.25); border-right: 1px solid rgba(0, 242, 254, 0.25); border-bottom: 1px solid rgba(0, 242, 254, 0.25); padding: 12px 18px; border-radius: 8px; margin-top: 16px; margin-bottom: 8px; box-shadow: 0 4px 18px rgba(0,0,0,0.4);'>
                         <div style='display: flex; justify-content: space-between; align-items: center;'>
-                            <span style='font-family: Orbitron, sans-serif; font-size: 1.1rem; font-weight: 700; color: #00f2fe; letter-spacing: 0.8px;'>⚡ {rack_selected} // ÉTAGÈRE {e_num:02d}</span>
-                            <span style='background: rgba(0, 242, 254, 0.15); border: 1px solid #00f2fe; color: #38bdf8; padding: 3px 12px; border-radius: 20px; font-family: Rajdhani, sans-serif; font-size: 0.95rem; font-weight: 700;'>{nb_on_shelf} / {capa_par_etagere} boîtiers ({fill_pct}%)</span>
+                            <span style='font-family: Orbitron, sans-serif; font-size: 1.05rem; font-weight: 700; color: #00f2fe; letter-spacing: 0.8px;'>⚡ {rack_selected_str} // ÉTAGÈRE {e_num:02d}</span>
+                            <span style='background: rgba(0, 242, 254, 0.15); border: 1px solid #00f2fe; color: #38bdf8; padding: 2px 10px; border-radius: 16px; font-family: Rajdhani, sans-serif; font-size: 0.9rem; font-weight: 700;'>{nb_on_shelf} / {r_capa_eta} boîtiers ({fill_pct}%)</span>
                         </div>
-                        <div style='color: #cbd5e1; margin-top: 8px; font-size: 0.95rem;'>
-                            🔤 <b>BORNES ALPHABÉTIQUES :</b> <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 8px; border-radius: 4px;'>{first_title[:32]}</code> ➔ <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 8px; border-radius: 4px;'>{last_title[:32]}</code>
-                        </div>
-                        <div style='width: 100%; background: rgba(51, 65, 85, 0.5); height: 5px; border-radius: 3px; margin-top: 10px; overflow: hidden;'>
-                            <div style='width: {fill_pct}%; background: linear-gradient(90deg, #00f2fe, #38bdf8); height: 100%;'></div>
+                        <div style='color: #cbd5e1; margin-top: 6px; font-size: 0.9rem;'>
+                            🔤 <b>BORNES :</b> <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 6px; border-radius: 4px;'>{first_title[:32]}</code> ➔ <code style='background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); color: #f8fafc; padding: 2px 6px; border-radius: 4px;'>{last_title[:32]}</code>
                         </div>
                     </div>""",
                     unsafe_allow_html=True
                 )
 
-                with st.expander(f"📋 Déplier l'inventaire complet de l'Étagère {e_num:02d} ({nb_on_shelf} films)") :
-                    view_shelf = shelf_films[[c for c in ['ID MyMovie', 'ID Unique', col_titre_fr, 'annee_num', 'duree_num', 'supports', 'Production_Corp', col_barcode] if c in shelf_films.columns]].copy()
-                    view_shelf.insert(0, "Emplacement", [f"P {p:03d}" for p in range(1, nb_on_shelf + 1)])
+                # Vue graphique interactive des tranches de boîtiers (cliquables vers nouvelle page)
+                shelf_records = shelf_movies_df.to_dict('records')
+                st.markdown(render_interactive_shelf_grid(shelf_records, r_num, e_num), unsafe_allow_html=True)
+
+                with st.expander(f"📋 Déplier l'inventaire tabulaire de l'Étagère {e_num:02d} ({nb_on_shelf} films)") :
+                    view_shelf = shelf_movies_df[[c for c in ['POSITION', 'ID MyMovie', 'ID Unique', col_titre_fr, 'annee_num', 'duree_num', 'supports', 'Production_Corp', col_barcode] if c in shelf_movies_df.columns]].copy()
                     st.dataframe(view_shelf, use_container_width=True, hide_index=True)
             else:
-                st.markdown(f"**📑 {rack_selected} — ÉTAGÈRE {e_num:02d} :** *(Emplacement vide / Réserve future)*")
+                st.markdown(f"**📑 {rack_selected_str} — ÉTAGÈRE {e_num:02d} :** *(Emplacement vide / Réserve future)*")
 
-    with tab_rack_search:
-        st.subheader("Calculateur d'Emplacement Immédiat")
+    # --- VUE 3 : RECHERCHE DIRECTE ---
+    elif st.session_state['wms_active_view'] == "🎯 Recherche Directe d'Emplacement":
+        st.subheader("🎯 Calculateur d'Emplacement Immédiat")
         st.markdown("Recherchez un titre ou scannez un code-barres pour obtenir son adresse logistique exacte :")
 
         srch_in = st.text_input("Titre, ID MyMovie ou Code-barres :", key="rack_search_input").strip()
         if srch_in:
-            m_found = sorted_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(srch_in.lower()), na=False)
-            if col_barcode in sorted_df.columns:
-                m_found = m_found | (sorted_df[col_barcode].astype(str).str.strip() == srch_in)
-            if 'ID Unique' in sorted_df.columns and srch_in.isdigit():
-                m_found = m_found | (sorted_df['ID Unique'].astype(str) == srch_in)
+            m_found = wms_df[col_titre_fr].astype(str).str.lower().str.contains(re.escape(srch_in.lower()), na=False)
+            if col_barcode in wms_df.columns:
+                m_found = m_found | (wms_df[col_barcode].astype(str).str.strip() == srch_in)
+            if 'ID Unique' in wms_df.columns and srch_in.isdigit():
+                m_found = m_found | (wms_df['ID Unique'].astype(str) == srch_in)
 
-            f_indices = sorted_df.index[m_found].tolist()
+            f_indices = wms_df.index[m_found].tolist()
             if f_indices:
                 if len(f_indices) > 1:
-                    opts = [f"#{sorted_df.iloc[i].get('ID Unique', i)} — {sorted_df.iloc[i][col_titre_fr]} (Pos {i+1})" for i in f_indices]
+                    opts = [f"#{wms_df.iloc[i].get('ID Unique', i)} — {wms_df.iloc[i][col_titre_fr]} ({wms_df.iloc[i]['Adresse_Rangement_WMS']})" for i in f_indices]
                     sel_opt = st.selectbox("Plusieurs correspondances trouvées :", opts, key="rack_f_choice")
                     target_i = f_indices[opts.index(sel_opt)]
                 else:
                     target_i = f_indices[0]
 
-                r_t, e_t, p_t, capa_t, addr_res = get_rack_info(target_i)
-                row_t = sorted_df.iloc[target_i]
+                row_t = wms_df.iloc[target_i]
+                r_t = int(row_t['RACK'])
+                e_t = int(row_t['ETAGERE'])
+                p_t = int(row_t['POSITION'])
+                addr_res = row_t['Adresse_Rangement_WMS']
+                f_id_target = row_t.get('ID Unique', row_t.get('id', ''))
 
                 st.success(f"🎯 **{row_t[col_titre_fr]}** localisé avec succès !")
                 st.markdown(f"### 📍 Adresse de Stockage : `{addr_res}`")
-                st.markdown(render_physical_shelf_visual(r_t, e_t, p_t, capa_t), unsafe_allow_html=True)
+                
+                # Rendu de l'étagère graphique avec mise en avant vert néon du film trouvé
+                shelf_target_records = wms_df[(wms_df['RACK'] == r_t) & (wms_df['ETAGERE'] == e_t)].to_dict('records')
+                st.markdown(render_interactive_shelf_grid(shelf_target_records, r_t, e_t, target_id=f_id_target), unsafe_allow_html=True)
 
                 w1, w2, w3 = st.columns(3)
                 w1.metric("🏢 Meuble / Rack", f"RACK {r_t:02d}")
                 w2.metric("📑 Niveau / Étagère", f"ÉTAGÈRE {e_t:02d}")
                 w3.metric("📍 Position de Gauche à Droite", f"Emplacement #{p_t:03d}")
-
-                st.markdown("---")
-                st.subheader(f"Voisinage immédiat sur l'Étagère {e_t:02d} :")
-                s_i = max(0, target_i - 5)
-                e_i = min(total_films, target_i + 6)
-                sub_rack = sorted_df.iloc[s_i:e_i].copy()
-                sub_rack.insert(0, "Position Alpha", [x + 1 for x in range(s_i, e_i)])
-                sub_rack.insert(1, "Repère", ["⭐ FILM CIBLÉ" if x == target_i else "" for x in range(s_i, e_i)])
-                render_custom_table(sub_rack, key_id=f"rack_vw_{target_i}")
             else:
-                st.error(f"Aucun film correspondant à « {srch_in} ».")
-
-    with tab_rack_labels:
-        st.subheader("Répertoire Global des Bornes de Rayonnage")
-        st.markdown("Générez le plan récapitulatif des étiquettes pour chaque meuble physique :")
-
-        bornes_data = []
-        for r_i in range(1, nb_racks_cfg + 1):
-            for e_i in range(1, nb_etageres_cfg + 1):
-                s_idx = ((r_i - 1) * nb_etageres_cfg + (e_i - 1)) * capa_par_etagere
-                e_idx = min(s_idx + capa_par_etagere, total_films)
-                if s_idx < total_films:
-                    f_tit = sorted_df.iloc[s_idx][col_titre_fr]
-                    l_tit = sorted_df.iloc[e_idx - 1][col_titre_fr]
-                    bornes_data.append({
-                        "RACK": f"RACK {r_i:02d}",
-                        "ÉTAGÈRE": f"ÉTAGÈRE {e_i:02d}",
-                        "Code Tablette": f"R{r_i:02d}-E{e_i:02d}",
-                        "Borne Début": f_tit,
-                        "Borne Fin": l_tit,
-                        "Nombre de Boîtiers": e_idx - s_idx,
-                        "Position Alpha Début": s_idx + 1,
-                        "Position Alpha Fin": e_idx
-                    })
-        bornes_df = pd.DataFrame(bornes_data)
-        st.dataframe(bornes_df, use_container_width=True, hide_index=True)
-
-        csv_bornes = bornes_df.to_csv(sep=';', index=False).encode('utf-8-sig')
-        st.download_button(
-            "📥 Télécharger le Plan des Étiquettes d'Étagères (CSV)",
-            data=csv_bornes,
-            file_name="Plan_Etiquettes_Rayonnage_RACK.csv",
-            mime="text/csv"
-        )
+                st.warning("Aucun film correspondant trouvé.")
 
 
-# ==============================================================================
-# FONCTION 5 : SCANNER ANTI-DOUBLON MOBILE & WISHLIST MAGASIN
-# ==============================================================================
 elif menu == "5° Scanner Anti-Doublon Mobile & Wishlist Magasin":
     st.title("📱 Scanner Anti-Doublon Mobile & Wishlist Magasin")
     st.markdown("Outil de poche optimisé pour smartphone en brocante ou en magasin (Fnac, disquaire). Visez un code-barres ou tapez un titre pour obtenir **une décision d'achat immédiate en 3 couleurs**.")
@@ -2295,8 +2639,11 @@ elif menu == "10° Scanner Étagère & Tranches en Réalité Augmentée (Spine H
     with cv_c2:
         st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
         if st.button("🎥 Lancer HUD Live (30 FPS)", help="Ouvre la fenêtre de visée OpenCV temps réel haute vitesse"):
-            import subprocess
-            cmd = [sys.executable, "/workspace/files/personal_files/spine_hud_live_opencv.py", "--target", target_f10_live]
+            current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+            hud_script_path = os.path.join(current_dir, "spine_hud_live_opencv.py")
+            if not os.path.exists(hud_script_path):
+                hud_script_path = "spine_hud_live_opencv.py"
+            cmd = [sys.executable, hud_script_path, "--target", target_f10_live]
             if uploaded_file_path and os.path.exists(uploaded_file_path):
                 cmd.extend(["--csv", uploaded_file_path])
             subprocess.Popen(cmd)
@@ -2585,7 +2932,18 @@ else:
     st.markdown("Tableau de bord exhaustif de votre vidéothèque : Supports, Boîtiers My Movies, Décennies, Durées, Genres, Réalisateurs, Acteurs, Studios et Notes IMDb.")
 
     tot_entries = len(df)
-    tot_uniques = df[col_titre_fr].nunique() if col_titre_fr in df.columns else tot_entries
+    
+    # Calcul rigoureux du nombre de films uniques réels (en éliminant les multiples occurrences sur un nom de film)
+    def clean_title_for_unique(t):
+        if not t or not isinstance(t, str): return ""
+        c = t.strip().lower()
+        c = re.sub(r'[^a-zA-Z0-9\s]', ' ', c)
+        return re.sub(r'\s+', ' ', c).strip()
+
+    unique_titles_set = set(df[col_titre_fr].dropna().apply(clean_title_for_unique)) if col_titre_fr in df.columns else set()
+    tot_films_uniques_stricts = len([u for u in unique_titles_set if u])
+    
+    tot_uniques = tot_films_uniques_stricts
     tot_mymovies_boxes = df['ID MyMovie'].nunique() if 'ID MyMovie' in df.columns else 0
 
     has_ratings = 'rating_num' in df.columns and df['rating_num'].notna().sum() > 0
@@ -2605,17 +2963,18 @@ else:
 
     # --- KPI CARDS ENRICHIES (Ligne 1 & Ligne 2) ---
     st.subheader("📌 Indicateurs Clés")
-    kpi_c1 = st.columns(6)
-    kpi_c1[0].metric("🎬 Total Titres / Films", f"{tot_entries:,}".replace(',', ' '))
-    kpi_c1[1].metric("📦 Boîtiers Physiques My Movies", f"{tot_mymovies_boxes:,}".replace(',', ' '))
-    kpi_c1[2].metric("🏢 Studios & Productions", f"{count_studios:,}".replace(',', ' '))
+    kpi_c1 = st.columns(7)
+    kpi_c1[0].metric("🎬 Total Entrées Catalogue", f"{tot_entries:,}".replace(',', ' '))
+    kpi_c1[1].metric("✨ Films Uniques Réels (Sans doublons de titre)", f"{tot_films_uniques_stricts:,}".replace(',', ' '))
+    kpi_c1[2].metric("📦 Boîtiers Physiques My Movies", f"{tot_mymovies_boxes:,}".replace(',', ' '))
+    kpi_c1[3].metric("🏢 Studios & Productions", f"{count_studios:,}".replace(',', ' '))
     if has_ratings:
-        kpi_c1[3].metric("⭐ Note IMDb Moyenne", f"{mean_rating} / 10")
-        kpi_c1[4].metric("🏆 Chefs-d'œuvre (≥ 8/10)", f"{count_top_rated:,}".replace(',', ' '))
+        kpi_c1[4].metric("⭐ Note IMDb Moyenne", f"{mean_rating} / 10")
+        kpi_c1[5].metric("🏆 Chefs-d'œuvre (≥ 8/10)", f"{count_top_rated:,}".replace(',', ' '))
     else:
-        kpi_c1[3].metric("⭐ Note IMDb", "N/A")
-        kpi_c1[4].metric("🏆 Top Notés", "N/A")
-    kpi_c1[5].metric("🎥 Réalisateurs répertoriés", f"{count_directors:,}".replace(',', ' '))
+        kpi_c1[4].metric("⭐ Note IMDb", "N/A")
+        kpi_c1[5].metric("🏆 Top Notés", "N/A")
+    kpi_c1[6].metric("🎥 Réalisateurs répertoriés", f"{count_directors:,}".replace(',', ' '))
 
     # Seconde rangée d'indicateurs : Année et Durée
     if has_annee_stats or has_duree_stats:
