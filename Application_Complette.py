@@ -119,6 +119,103 @@ def decode_barcode_robust(pil_img):
     return ""
 
 
+
+def enrich_with_physical_wms(df_input, nb_etageres=8, capa_etagere=10, custom_rack_configs=None):
+    """
+    Système WMS Topologique Physique de Référence V5.5 :
+    - Racks configurables individuellement (Capacités & Nombre d'étagères sur-mesure par meuble).
+    - Rangement Alphabétique Réel sur Étagères des Boîtiers Physiques.
+    - Gestion automatique des coffrets : si un film est contenu dans un coffret,
+      son adresse physique est celle du coffret parent où il est rangé sur l'étagère.
+    """
+    if custom_rack_configs is None:
+        custom_rack_configs = {}
+    df_res = df_input.copy()
+    col_t_fr = next((c for c in df_res.columns if c.lower() in ['titre', 'titre_fr', 'titre_francais']), df_res.columns[0])
+
+    parent_map = {}
+    for _, r in df_res.iterrows():
+        raw_id = str(r.get('id', '')).strip()
+        if raw_id and '_' not in raw_id:
+            parent_map[raw_id] = str(r.get(col_t_fr, '')).strip()
+
+    def get_sort_key(t):
+        if not t or not isinstance(t, str): return ""
+        return re.sub(r'^[^a-zA-Z0-9]+', '', t.strip()).lower()
+
+    physical_boxes = {}
+    for _, r in df_res.iterrows():
+        raw_id = str(r.get('id', '')).strip()
+        pos_src = str(r.get('pos_source', '')).strip()
+        is_child = '_' in raw_id
+        parent_id = raw_id.split('_')[0] if is_child else (raw_id if raw_id else pos_src)
+        
+        if parent_id not in physical_boxes:
+            titre_boitier = parent_map.get(parent_id, str(r.get(col_t_fr, '')).strip())
+            physical_boxes[parent_id] = {
+                'box_id': parent_id,
+                'titre_boitier': titre_boitier,
+                'sort_key': get_sort_key(titre_boitier)
+            }
+
+    sorted_boxes = sorted(list(physical_boxes.values()), key=lambda x: x['sort_key'])
+    box_to_geo = {}
+    current_rack = 1
+    current_etagere = 1
+    current_pos = 1
+    
+    for rank, b in enumerate(sorted_boxes):
+        cfg = custom_rack_configs.get(current_rack, {
+            'nb_etageres': nb_etageres,
+            'capa_etagere': capa_etagere
+        })
+        max_etageres = max(1, int(cfg.get('nb_etageres', nb_etageres)))
+        max_capa = max(1, int(cfg.get('capa_etagere', capa_etagere)))
+        
+        addr_str = f"RACK {current_rack:02d} // ÉTAGÈRE {current_etagere:02d} // POSITION {current_pos:02d}"
+        box_to_geo[b['box_id']] = {
+            'geo_rank': rank + 1,
+            'rack': current_rack,
+            'etagere': current_etagere,
+            'pos': current_pos,
+            'adresse_geo': addr_str,
+            'titre_boitier': b['titre_boitier']
+        }
+        
+        current_pos += 1
+        if current_pos > max_capa:
+            current_pos = 1
+            current_etagere += 1
+            if current_etagere > max_etageres:
+                current_etagere = 1
+                current_rack += 1
+
+    geo_ranks, racks, etageres, positions, adresses, boitiers, types_rangement = [], [], [], [], [], [], []
+    for _, r in df_res.iterrows():
+        raw_id = str(r.get('id', '')).strip()
+        pos_src = str(r.get('pos_source', '')).strip()
+        is_child = '_' in raw_id
+        parent_id = raw_id.split('_')[0] if is_child else (raw_id if raw_id else pos_src)
+        geo = box_to_geo.get(parent_id, {'geo_rank': 0, 'rack': 0, 'etagere': 0, 'pos': 0, 'adresse_geo': 'Non assigné', 'titre_boitier': ''})
+        
+        geo_ranks.append(geo['geo_rank'])
+        racks.append(geo['rack'])
+        etageres.append(geo['etagere'])
+        positions.append(geo['pos'])
+        adresses.append(geo['adresse_geo'])
+        boitiers.append(geo['titre_boitier'])
+        types_rangement.append(f"📦 Dans Coffret : « {geo['titre_boitier'][:22]}... »" if is_child else "💿 Boîtier Unitaire")
+
+    df_res['Rang_Physique'] = geo_ranks
+    df_res['RACK'] = racks
+    df_res['ETAGERE'] = etageres
+    df_res['POSITION'] = positions
+    df_res['Adresse_Rangement_WMS'] = adresses
+    df_res['Boitier_Rangement'] = boitiers
+    df_res['Type_Rangement'] = types_rangement
+    return df_res, sorted_boxes, box_to_geo
+
+
 def render_physical_shelf_visual(target_rack, target_etagere, target_pos, capa_etagere, shelf_titles=None):
     """
     Dessine visuellement le compartiment d'étagère avec ses positions de DVD alignées
@@ -211,7 +308,7 @@ except ImportError:
     alt = None
 
 st.set_page_config(
-    page_title="⚡ Volt Ciné-WMS v5.0 Ultra // Système Tactique",
+    page_title="⚡ TdBI Ciné-WMS v5.5 Ultra // Système Tactique",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -491,6 +588,50 @@ h2, h3 {
     letter-spacing: 1px !important;
     text-transform: uppercase !important;
 }
+
+/* --- OPTIMISATIONS ERGONOMIQUES V5.4 COMPACT & TABLE XXL (Raf) --- */
+h1 {
+    font-size: 1.35rem !important;
+    font-weight: 800 !important;
+    margin-top: 2px !important;
+    margin-bottom: 6px !important;
+    letter-spacing: 0.5px !important;
+}
+
+h2, h3 {
+    font-size: 1.10rem !important;
+    font-weight: 700 !important;
+    margin-top: 4px !important;
+    margin-bottom: 4px !important;
+}
+
+.stApp [data-testid="stVerticalBlock"] > div {
+    gap: 0.35rem !important;
+}
+
+/* Zone élargie plein écran pour la table de films */
+[data-testid="stDataFrame"], .stDataFrame {
+    width: 100% !important;
+    max-height: 720px !important;
+    border: 1px solid rgba(0, 242, 254, 0.25) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+div[data-testid="stDataFrame"] > div {
+    max-height: 700px !important;
+}
+
+.cyber-hud-banner {
+    padding: 8px 16px !important;
+    margin-bottom: 10px !important;
+    border-radius: 10px !important;
+}
+
+.cyber-title {
+    font-size: 1.15rem !important;
+}
+
 </style>
 
 <div class="cyber-hud-banner">
@@ -782,6 +923,15 @@ if up_file is not None:
         st.sidebar.error(f"Erreur d'import : {e}")
 
 df = st.session_state['df_films']
+# Application topologique physique WMS (Rangement Alphabétique et Gestion des Coffrets)
+df, sorted_physical_boxes, box_geo_map = enrich_with_physical_wms(
+    df, 
+    nb_etageres=getattr(st.session_state, 'cfg_nb_etageres', 8),
+    capa_etagere=getattr(st.session_state, 'cfg_capa_etagere', 10),
+    custom_rack_configs=st.session_state.get('custom_rack_configs', {})
+)
+st.session_state['df_films'] = df
+
 st.sidebar.info(f"📊 Source active : **{st.session_state.get('source_name', 'Inconnu')}**\n\n📌 **{len(df):,}** enregistrements".replace(',', ' '))
 
 # Export CSV propre
@@ -816,7 +966,34 @@ menu = st.sidebar.radio("Sélectionnez la fonction :", [
 
 # Paramétrage logistique RACK dans la barre latérale (Étendu & Haute Capacité)
 st.sidebar.markdown("---")
-st.sidebar.subheader("🏢 Topologie de Stockage RACK (Magasin)")
+st.sidebar.subheader("🏢 Topologie de Stockage RACK")
+
+if 'custom_rack_configs' not in st.session_state:
+    st.session_state['custom_rack_configs'] = {}
+
+with st.sidebar.expander("⚙️ Calibrage Individuel par Rack", expanded=False):
+    st.markdown("<small style='color: #00f2fe;'>Définissez des hauteurs et capacités sur-mesure pour chaque meuble :</small>", unsafe_allow_html=True)
+    c_rack_id = st.number_input("Sélectionner le N° de Rack :", min_value=1, max_value=60, value=1, step=1, key="sel_rack_custom_id")
+    c_rack_eta = st.number_input(f"Nombre d'Étagères pour Rack {c_rack_id:02d} :", min_value=1, max_value=30, value=st.session_state['custom_rack_configs'].get(c_rack_id, {}).get('nb_etageres', 8), step=1, key=f"inp_eta_r_{c_rack_id}")
+    c_rack_cap = st.number_input(f"Capacité par Étagère (boîtiers) pour Rack {c_rack_id:02d} :", min_value=5, max_value=150, value=st.session_state['custom_rack_configs'].get(c_rack_id, {}).get('capa_etagere', 10), step=1, key=f"inp_cap_r_{c_rack_id}")
+    
+    col_sb_r1, col_sb_r2 = st.columns(2)
+    with col_sb_r1:
+        if st.button("💾 Enregistrer Rack", key="btn_save_custom_rack"):
+            st.session_state['custom_rack_configs'][c_rack_id] = {'nb_etageres': c_rack_eta, 'capa_etagere': c_rack_cap}
+            st.success(f"Rack {c_rack_id:02d} configuré !")
+            st.rerun()
+    with col_sb_r2:
+        if st.button("🔄 Réinitialiser", key="btn_reset_custom_rack"):
+            if c_rack_id in st.session_state['custom_rack_configs']:
+                del st.session_state['custom_rack_configs'][c_rack_id]
+                st.rerun()
+                
+    if st.session_state['custom_rack_configs']:
+        st.markdown("**Racks sur-mesure enregistrés :**")
+        for r_k, r_v in sorted(st.session_state['custom_rack_configs'].items()):
+            st.markdown(f"- **RACK {r_k:02d}** : `{r_v['nb_etageres']} étagères` × `{r_v['capa_etagere']} boîtiers` ({r_v['nb_etageres'] * r_v['capa_etagere']} places)")
+
 
 mode_config = st.sidebar.radio(
     "Mode de calibrage :",
@@ -1263,18 +1440,32 @@ elif menu == "2° Saisie Code-Barres (Douchette USB - 5 avant / 5 après)":
 
     series_b = sorted_df[col_barcode].fillna('').astype(str).str.strip()
 
+    # Gestion de la saisie avec auto-effacement pour enchaîner les scans à la douchette
+    if 'active_barcode_val' not in st.session_state:
+        st.session_state['active_barcode_val'] = ""
+
+    def on_barcode_submitted():
+        scanned_val = st.session_state.get('widget_barcode_input', '').strip()
+        if scanned_val:
+            st.session_state['active_barcode_val'] = scanned_val
+            st.session_state['widget_barcode_input'] = "" # Réinitialise immédiatement le champ de saisie !
+
     scan_c1, scan_c2 = st.columns([5, 1])
     with scan_c1:
-        cb_raw = st.text_input(
-            "Scannez à la douchette ou saisissez le code-barres (ou un Titre / ID en secours) :",
-            value="",
-            key="input_cb_scan",
-            placeholder="Ex: 3344428038830, 5051889673620, ou titre de film..."
+        st.text_input(
+            "Scannez à la douchette (le champ s'efface automatiquement après validation pour le film suivant) :",
+            key="widget_barcode_input",
+            on_change=on_barcode_submitted,
+            placeholder="Pointez la douchette et flashez le code-barres..."
         )
     with scan_c2:
         st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Effacer", help="Réinitialiser pour un nouveau scan"):
+        if st.button("🔄 Réinitialiser", help="Effacer la sélection en cours"):
+            st.session_state['active_barcode_val'] = ""
+            st.session_state['widget_barcode_input'] = ""
             st.rerun()
+
+    cb_raw = st.session_state.get('active_barcode_val', '')
 
     if cb_raw:
         clean_cb = ''.join(ch for ch in str(cb_raw) if ch.isprintable()).strip()
@@ -2088,7 +2279,30 @@ elif menu == "10° Scanner Étagère & Tranches en Réalité Augmentée (Spine H
     from PIL import ImageDraw, ImageFont
 
     st.title("🥽 Scanner d'Étagère & Tranches en Réalité Augmentée (Spine HUD AR)")
-    st.markdown("Pointez la caméra vers un **rayon de films (DVD, Blu-ray, 4K UHD)** en magasin ou brocante. Le système lit les titres inscrits sur les tranches et projette en **Réalité Augmentée (AR)** les statuts d'achat : **Wishlist**, **Déjà Possédé**, **Upgrade 4K Conseillé** ou **Film Absent**.")
+    st.markdown("Pointez la caméra vers un **rayon de films (DVD, Blu-ray, 4K UHD)**. Le système lit les titres inscrits sur les tranches et projette en **Réalité Augmentée (AR)** les statuts d'inventaire et de rangement.")
+
+    # --- BANDEAU OPENCV TEMPS RÉEL (30 FPS) ---
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(0, 242, 254, 0.12), rgba(79, 70, 229, 0.18)); border: 1px solid #00f2fe; padding: 14px 20px; border-radius: 10px; margin-bottom: 20px;">
+        <h4 style="color: #00f2fe; margin-top: 0; font-family: Orbitron, sans-serif;">🚀 MOTEUR TEMPS RÉEL OPENCV SPINES HUD (30 FPS FLUIDE)</h4>
+        <p style="margin-bottom: 8px; color: #cbd5e1; font-size: 0.95rem;">Pour éliminer la latence du navigateur et obtenir un affichage tête haute ultra-fluide en continu sur votre flux vidéo direct :</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    cv_c1, cv_c2 = st.columns([3, 1])
+    with cv_c1:
+        target_f10_live = st.text_input("Titre du film à cibler en réalité augmentée dans le flux live :", value="", placeholder="Ex: Inception, Gladiator, Matrix...", key="inp_target_opencv_live")
+    with cv_c2:
+        st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🎥 Lancer HUD Live (30 FPS)", help="Ouvre la fenêtre de visée OpenCV temps réel haute vitesse"):
+            import subprocess
+            cmd = [sys.executable, "/workspace/files/personal_files/spine_hud_live_opencv.py", "--target", target_f10_live]
+            if uploaded_file_path and os.path.exists(uploaded_file_path):
+                cmd.extend(["--csv", uploaded_file_path])
+            subprocess.Popen(cmd)
+            st.success("✅ Fenêtre AR HUD OpenCV lancée ! (Appuyez sur [ÉCHAP] sur la fenêtre pour la fermer)")
+    st.markdown("---")
+
 
     # Initialisation de la Wishlist en session si non présente
     if 'wishlist_data' not in st.session_state:
