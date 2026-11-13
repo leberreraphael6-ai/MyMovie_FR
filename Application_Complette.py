@@ -643,7 +643,7 @@ div[data-testid="stDataFrame"] > div {
     </div>
     <div class="cyber-hud-status">
         <div class="cyber-badge-online">🟢 SYSTÈME EN LIGNE</div>
-        <div class="cyber-badge-version">VERSION 5.0 ULTRA</div>
+        <div class="cyber-badge-version">VERSION 5.5.0 ULTRA</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
